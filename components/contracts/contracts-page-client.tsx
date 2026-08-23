@@ -23,6 +23,10 @@ import {
   type AllocationRow,
   type SeriesOption,
 } from "@/components/contracts/contract-allocations-dialog";
+import {
+  ContractAmendmentsDialog,
+  type AmendmentRow,
+} from "@/components/contracts/contract-amendments-dialog";
 
 export interface ContractRow {
   id: string;
@@ -32,6 +36,7 @@ export interface ContractRow {
   companyName: string | null;
   currentAmountLabel: string;
   allocations: AllocationRow[];
+  amendments: AmendmentRow[];
   raw: ContractFormValue;
 }
 
@@ -53,6 +58,7 @@ export function ContractsPageClient({
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ContractFormValue | null>(null);
   const [allocationsFor, setAllocationsFor] = useState<ContractRow | null>(null);
+  const [amendmentsFor, setAmendmentsFor] = useState<ContractRow | null>(null);
 
   return (
     <div className="flex flex-col gap-4 p-8">
@@ -113,7 +119,10 @@ export function ContractsPageClient({
                   </Button>
                 </TableCell>
                 {canEdit && (
-                  <TableCell className="text-right">
+                  <TableCell className="text-right whitespace-nowrap">
+                    <Button variant="ghost" size="sm" onClick={() => setAmendmentsFor(row)}>
+                      Convenios ({row.amendments.length})
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -150,6 +159,17 @@ export function ContractsPageClient({
           contractLabel={`${allocationsFor.contractNumber} — ${allocationsFor.name}`}
           allocations={allocationsFor.allocations}
           seriesOptions={seriesOptions}
+        />
+      )}
+
+      {amendmentsFor && (
+        <ContractAmendmentsDialog
+          key={amendmentsFor.id}
+          open={Boolean(amendmentsFor)}
+          onOpenChange={(open) => !open && setAmendmentsFor(null)}
+          contractId={amendmentsFor.id}
+          contractLabel={`${amendmentsFor.contractNumber} — ${amendmentsFor.name}`}
+          amendments={amendmentsFor.amendments}
         />
       )}
     </div>

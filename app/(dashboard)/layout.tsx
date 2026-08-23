@@ -14,7 +14,7 @@ export default async function DashboardLayout({
   if (!user) redirect("/login");
 
   const links = [
-    { href: "/", label: "Dashboard" },
+    { href: "/", label: "Resumen" },
     ...(hasPermission(user, "SERIES.VER") ? [{ href: "/series", label: "Series PMD" }] : []),
     ...(hasPermission(user, "CONTRATOS.VER") ? [{ href: "/contratos", label: "Contratos" }] : []),
     ...(hasPermission(user, "PROGRAMACION.VER")

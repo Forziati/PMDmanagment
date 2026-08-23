@@ -53,6 +53,11 @@ export interface ContractFormValue {
   originalAmount: string;
   currentAmount: string;
   advanceAmount: string;
+  oeneContractedBudget: string;
+  oeneTotal: string;
+  oeneContracted: string;
+  oeneToRegularize: string;
+  oeneToInvoice: string;
   costOrigin: string;
 }
 
@@ -66,6 +71,11 @@ const EMPTY_VALUE: ContractFormValue = {
   originalAmount: "0",
   currentAmount: "0",
   advanceAmount: "0",
+  oeneContractedBudget: "0",
+  oeneTotal: "0",
+  oeneContracted: "0",
+  oeneToRegularize: "0",
+  oeneToInvoice: "0",
   costOrigin: "",
 };
 
@@ -101,6 +111,11 @@ export function ContractFormDialog({
       stage: value.stage,
       currentAmount: value.currentAmount,
       advanceAmount: value.advanceAmount,
+      oeneContractedBudget: value.oeneContractedBudget,
+      oeneTotal: value.oeneTotal,
+      oeneContracted: value.oeneContracted,
+      oeneToRegularize: value.oeneToRegularize,
+      oeneToInvoice: value.oeneToInvoice,
       costOrigin: value.costOrigin || undefined,
     };
     const payload = isEditing
@@ -251,6 +266,62 @@ export function ContractFormDialog({
                 value={value.advanceAmount}
                 onChange={(e) => setValue((s) => ({ ...s, advanceAmount: e.target.value }))}
               />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 border-t pt-4">
+            <span className="text-sm font-medium">OENE (Órdenes de Ejecución No Estimadas)</span>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="oeneContractedBudget">Ppto. contratado</Label>
+                <Input
+                  id="oeneContractedBudget"
+                  type="number"
+                  step="0.01"
+                  value={value.oeneContractedBudget}
+                  onChange={(e) => setValue((s) => ({ ...s, oeneContractedBudget: e.target.value }))}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="oeneTotal">OENE total</Label>
+                <Input
+                  id="oeneTotal"
+                  type="number"
+                  step="0.01"
+                  value={value.oeneTotal}
+                  onChange={(e) => setValue((s) => ({ ...s, oeneTotal: e.target.value }))}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="oeneContracted">OENE contratada</Label>
+                <Input
+                  id="oeneContracted"
+                  type="number"
+                  step="0.01"
+                  value={value.oeneContracted}
+                  onChange={(e) => setValue((s) => ({ ...s, oeneContracted: e.target.value }))}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="oeneToRegularize">OENE por regularizar</Label>
+                <Input
+                  id="oeneToRegularize"
+                  type="number"
+                  step="0.01"
+                  value={value.oeneToRegularize}
+                  onChange={(e) => setValue((s) => ({ ...s, oeneToRegularize: e.target.value }))}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="oeneToInvoice">OENE por facturar</Label>
+                <Input
+                  id="oeneToInvoice"
+                  type="number"
+                  step="0.01"
+                  value={value.oeneToInvoice}
+                  onChange={(e) => setValue((s) => ({ ...s, oeneToInvoice: e.target.value }))}
+                />
+              </div>
             </div>
           </div>
 

@@ -32,6 +32,11 @@ const createSchema = z.object({
   originalAmount: decimalInput.default("0"),
   currentAmount: decimalInput.default("0"),
   advanceAmount: decimalInput.default("0"),
+  oeneContractedBudget: decimalInput.default("0"),
+  oeneTotal: decimalInput.default("0"),
+  oeneContracted: decimalInput.default("0"),
+  oeneToRegularize: decimalInput.default("0"),
+  oeneToInvoice: decimalInput.default("0"),
   costOrigin: z.string().max(30).optional(),
   responsibleUserId: uuid.optional(),
 });

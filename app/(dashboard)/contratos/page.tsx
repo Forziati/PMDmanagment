@@ -18,6 +18,7 @@ export default async function ContractsPage() {
       include: {
         company: true,
         allocations: { include: { pmdSeries: true } },
+        amendments: { orderBy: { amendmentNumber: "asc" } },
       },
       orderBy: { createdAt: "desc" },
     }),
@@ -46,6 +47,13 @@ export default async function ContractsPage() {
       seriesLabel: `${a.pmdSeries.code} — ${a.pmdSeries.name}`,
       allocatedAmountLabel: formatPesos(a.allocatedAmount),
     })),
+    amendments: c.amendments.map((a) => ({
+      id: a.id,
+      amendmentNumber: a.amendmentNumber,
+      amountDelta: a.amountDelta.toString(),
+      effectiveDate: a.effectiveDate.toISOString().slice(0, 10),
+      reason: a.reason,
+    })),
     raw: {
       id: c.id,
       contractNumber: c.contractNumber,
@@ -57,6 +65,11 @@ export default async function ContractsPage() {
       originalAmount: c.originalAmount.toString(),
       currentAmount: c.currentAmount.toString(),
       advanceAmount: c.advanceAmount.toString(),
+      oeneContractedBudget: c.oeneContractedBudget.toString(),
+      oeneTotal: c.oeneTotal.toString(),
+      oeneContracted: c.oeneContracted.toString(),
+      oeneToRegularize: c.oeneToRegularize.toString(),
+      oeneToInvoice: c.oeneToInvoice.toString(),
       costOrigin: c.costOrigin ?? "",
     },
   }));

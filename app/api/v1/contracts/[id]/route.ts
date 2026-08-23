@@ -41,6 +41,11 @@ const updateSchema = z.object({
   actualEndDate: z.coerce.date().nullable().optional(),
   currentAmount: decimalInput.optional(),
   advanceAmount: decimalInput.optional(),
+  oeneContractedBudget: decimalInput.optional(),
+  oeneTotal: decimalInput.optional(),
+  oeneContracted: decimalInput.optional(),
+  oeneToRegularize: decimalInput.optional(),
+  oeneToInvoice: decimalInput.optional(),
   costOrigin: z.string().max(30).nullable().optional(),
   responsibleUserId: uuid.nullable().optional(),
 });
