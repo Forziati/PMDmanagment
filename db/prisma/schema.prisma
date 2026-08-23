@@ -1,0 +1,883 @@
+// PMD CONTROL HUB — esquema de base de datos
+// Deriva de DATA_DICTIONARY.md. Cada modelo referencia la sección del diccionario
+// de la que proviene. Campos marcados [Recomendado] en el diccionario no tienen
+// equivalente directo en las fuentes (Excel ASUR / PPTX GAP) y están documentados
+// ahí, no aquí, para no duplicar el razonamiento.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// 1. Administración / jerarquía (DATA_DICTIONARY §2.1-2.6)
+// ─────────────────────────────────────────────────────────────
+
+model Client {
+  id              String   @id @default(uuid())
+  code            String   @unique
+  name            String
+  currencyDefault String   @default("MXN") @map("currency_default")
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  airports         Airport[]
+  companies        Company[]
+  contracts        Contract[]
+  investmentGroups InvestmentGroup[]
+  catalogValues    CatalogValue[]
+  users            User[]
+  userScopes       UserScope[]
+  auditLogs        AuditLog[]
+
+  @@map("clients")
+}
+
+model Airport {
+  id       String  @id @default(uuid())
+  clientId String  @map("client_id")
+  iataCode String  @map("iata_code")
+  name     String
+  active   Boolean @default(true)
+
+  client     Client      @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  pmdCycles  PmdCycle[]
+  userScopes UserScope[]
+
+  @@unique([clientId, iataCode])
+  @@map("airports")
+}
+
+model PmdCycle {
+  id        String @id @default(uuid())
+  airportId String @map("airport_id")
+  code      String
+  startYear Int    @map("start_year")
+  endYear   Int    @map("end_year")
+  status    String @default("ACTIVO")
+
+  airport  Airport   @relation(fields: [airportId], references: [id], onDelete: Restrict)
+  pmdYears PmdYear[]
+
+  @@unique([airportId, code])
+  @@map("pmd_cycles")
+}
+
+model PmdYear {
+  id                 String  @id @default(uuid())
+  pmdCycleId         String  @map("pmd_cycle_id")
+  year               Int
+  escalationFactor   Decimal @default(1) @map("escalation_factor") @db.Decimal(10, 6)
+  annualTargetLocked Boolean @default(false) @map("annual_target_locked")
+
+  pmdCycle     PmdCycle      @relation(fields: [pmdCycleId], references: [id], onDelete: Restrict)
+  pmdSeries    PmdSeries[]
+  annualTarget AnnualTarget?
+
+  @@unique([pmdCycleId, year])
+  @@map("pmd_years")
+}
+
+/// Grupos de inversión configurables por cliente (Diseño, Obra, Procura,
+/// Dirección de Proyecto/STE, Otros) — DATA_DICTIONARY §2.5.
+model InvestmentGroup {
+  id        String @id @default(uuid())
+  clientId  String @map("client_id")
+  code      String
+  name      String
+  sortOrder Int    @default(0) @map("sort_order")
+
+  client    Client      @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  pmdSeries PmdSeries[]
+  contracts Contract[]
+
+  @@unique([clientId, code])
+  @@map("investment_groups")
+}
+
+/// Catálogo genérico configurable por cliente para valores tipo lista
+/// desplegable que el Excel de origen maneja como validación de datos, sin
+/// entidad propia: "Categorías" de gasto y "Origen del Costo" (DATA_DICTIONARY
+/// §3). No son FK estrictas — igual que en el Excel, son listas de apoyo para
+/// captura y reportes, no relaciones referenciales duras.
+model CatalogValue {
+  id          String  @id @default(uuid())
+  clientId    String  @map("client_id")
+  catalogType String  @map("catalog_type") // ej. EXPENSE_CATEGORY, COST_ORIGIN, RISK_LEVEL
+  code        String
+  label       String
+  sortOrder   Int     @default(0) @map("sort_order")
+  active      Boolean @default(true)
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  @@unique([clientId, catalogType, code])
+  @@map("catalog_values")
+}
+
+// ─────────────────────────────────────────────────────────────
+// 2. Series PMD (DATA_DICTIONARY §2.6-2.6.1)
+// ─────────────────────────────────────────────────────────────
+
+model PmdSeries {
+  id                String   @id @default(uuid())
+  pmdYearId         String   @map("pmd_year_id")
+  code              String
+  name              String
+  description       String?
+  investmentGroupId String?  @map("investment_group_id")
+  authorizedAmount  Decimal  @default(0) @map("authorized_amount") @db.Decimal(18, 2)
+  updatedAmount     Decimal  @default(0) @map("updated_amount") @db.Decimal(18, 2)
+  responsibleUserId String?  @map("responsible_user_id")
+  status            String   @default("ACTIVA")
+  sourceDocument    String?  @map("source_document")
+  tags              String[] @default([])
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  pmdYear           PmdYear                    @relation(fields: [pmdYearId], references: [id], onDelete: Restrict)
+  investmentGroup   InvestmentGroup?           @relation(fields: [investmentGroupId], references: [id], onDelete: Restrict)
+  responsibleUser   User?                      @relation(fields: [responsibleUserId], references: [id], onDelete: Restrict)
+  items             PmdSeriesItem[]
+  allocations       ContractSeriesAllocation[]
+  scheduleVersions  ScheduleVersion[]
+  monthlySchedules  MonthlySchedule[]
+  actualInvestments ActualInvestment[]
+  milestones        Milestone[]
+
+  @@unique([pmdYearId, code])
+  @@map("pmd_series")
+}
+
+/// Nivel Subsector/Proyecto observado en la hoja `Datos PMD` del Excel de
+/// ASUR — DATA_DICTIONARY §2.6.1. [Recomendado como tabla] para no perder
+/// granularidad frente al modelo mínimo del prompt maestro.
+model PmdSeriesItem {
+  id          String   @id @default(uuid())
+  pmdSeriesId String   @map("pmd_series_id")
+  subsector   String?
+  projectName String   @map("project_name")
+  unit        String?
+  quantity    Decimal? @db.Decimal(18, 4)
+  unitPrice   Decimal? @map("unit_price") @db.Decimal(18, 4)
+
+  pmdSeries PmdSeries @relation(fields: [pmdSeriesId], references: [id], onDelete: Restrict)
+
+  @@map("pmd_series_items")
+}
+
+// ─────────────────────────────────────────────────────────────
+// 3. Contratos y empresas (DATA_DICTIONARY §2.7-2.10)
+// ─────────────────────────────────────────────────────────────
+
+model Company {
+  id       String  @id @default(uuid())
+  clientId String  @map("client_id")
+  name     String
+  taxId    String? @map("tax_id")
+  active   Boolean @default(true)
+
+  client    Client     @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  contracts Contract[]
+
+  @@map("companies")
+}
+
+model Contract {
+  id                   String    @id @default(uuid())
+  clientId             String    @map("client_id")
+  contractNumber       String    @map("contract_number")
+  name                 String
+  scope                String?
+  companyId            String?   @map("company_id")
+  investmentGroupId    String?   @map("investment_group_id")
+  stage                String    @default("EN_DEFINICION")
+  plannedStartDate     DateTime? @map("planned_start_date")
+  plannedEndDate       DateTime? @map("planned_end_date")
+  actualStartDate      DateTime? @map("actual_start_date")
+  actualEndDate        DateTime? @map("actual_end_date")
+  originalAmount       Decimal   @default(0) @map("original_amount") @db.Decimal(18, 2)
+  currentAmount        Decimal   @default(0) @map("current_amount") @db.Decimal(18, 2)
+  advanceAmount        Decimal   @default(0) @map("advance_amount") @db.Decimal(18, 2)
+  advanceAmortized     Decimal   @default(0) @map("advance_amortized") @db.Decimal(18, 2)
+  oeneContractedBudget Decimal   @default(0) @map("oene_contracted_budget") @db.Decimal(18, 2)
+  oeneTotal            Decimal   @default(0) @map("oene_total") @db.Decimal(18, 2)
+  oeneContracted       Decimal   @default(0) @map("oene_contracted") @db.Decimal(18, 2)
+  oeneToRegularize     Decimal   @default(0) @map("oene_to_regularize") @db.Decimal(18, 2)
+  oeneToInvoice        Decimal   @default(0) @map("oene_to_invoice") @db.Decimal(18, 2)
+  retentions           Decimal   @default(0) @db.Decimal(18, 2)
+  penalties            Decimal   @default(0) @db.Decimal(18, 2)
+  costOrigin           String?   @map("cost_origin")
+  responsibleUserId    String?   @map("responsible_user_id")
+  status               String    @default("BORRADOR")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  client            Client                     @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  company           Company?                   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  investmentGroup   InvestmentGroup?           @relation(fields: [investmentGroupId], references: [id], onDelete: Restrict)
+  responsibleUser   User?                      @relation(fields: [responsibleUserId], references: [id], onDelete: Restrict)
+  allocations       ContractSeriesAllocation[]
+  amendments        ContractAmendment[]
+  scheduleVersions  ScheduleVersion[]
+  monthlySchedules  MonthlySchedule[]
+  actualInvestments ActualInvestment[]
+  invoices          Invoice[]
+  estimates         Estimate[]
+  oeneRecords       OeneRecord[]
+  milestones        Milestone[]
+  risks             Risk[]
+
+  @@unique([clientId, contractNumber])
+  @@map("contracts")
+}
+
+/// Tabla puente M:N — en el Excel de origen el contrato vive 1:1 en la fila
+/// de la serie; se modela M:N desde v1 para soportar contratos que aportan a
+/// varias series (DESIGN_BASELINE.md, ambigüedad §1).
+model ContractSeriesAllocation {
+  id              String  @id @default(uuid())
+  contractId      String  @map("contract_id")
+  pmdSeriesId     String  @map("pmd_series_id")
+  allocatedAmount Decimal @default(0) @map("allocated_amount") @db.Decimal(18, 2)
+  isPrimary       Boolean @default(true) @map("is_primary")
+
+  contract  Contract  @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  pmdSeries PmdSeries @relation(fields: [pmdSeriesId], references: [id], onDelete: Restrict)
+
+  @@unique([contractId, pmdSeriesId])
+  @@map("contract_series_allocations")
+}
+
+model ContractAmendment {
+  id                   String   @id @default(uuid())
+  contractId           String   @map("contract_id")
+  amendmentNumber      Int      @map("amendment_number")
+  amountDelta          Decimal  @map("amount_delta") @db.Decimal(18, 2)
+  effectiveDate        DateTime @map("effective_date")
+  reason               String
+  evidenceAttachmentId String?  @map("evidence_attachment_id")
+
+  contract           Contract    @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  evidenceAttachment Attachment? @relation(fields: [evidenceAttachmentId], references: [id], onDelete: Restrict)
+
+  @@unique([contractId, amendmentNumber])
+  @@map("contract_amendments")
+}
+
+// ─────────────────────────────────────────────────────────────
+// 4. Hito anual y programación (DATA_DICTIONARY §2.11-2.13)
+// ─────────────────────────────────────────────────────────────
+
+model AnnualTarget {
+  id                           String  @id @default(uuid())
+  pmdYearId                    String  @unique @map("pmd_year_id")
+  amount                       Decimal @db.Decimal(18, 2)
+  locked                       Boolean @default(true)
+  approvedBy                   String? @map("approved_by")
+  approvalEvidenceAttachmentId String? @map("approval_evidence_attachment_id")
+
+  pmdYear            PmdYear     @relation(fields: [pmdYearId], references: [id], onDelete: Restrict)
+  approver           User?       @relation(fields: [approvedBy], references: [id], onDelete: Restrict)
+  evidenceAttachment Attachment? @relation(fields: [approvalEvidenceAttachmentId], references: [id], onDelete: Restrict)
+
+  @@map("annual_targets")
+}
+
+model ScheduleVersion {
+  id          String   @id @default(uuid())
+  pmdSeriesId String?  @map("pmd_series_id")
+  contractId  String?  @map("contract_id")
+  versionType String   @map("version_type") // BASELINE | APPROVED | FORECAST
+  cutoffDate  DateTime @map("cutoff_date")
+  reason      String?
+  requestedBy String?  @map("requested_by")
+  approvedBy  String?  @map("approved_by")
+  status      String   @default("BORRADOR")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  pmdSeries        PmdSeries?        @relation(fields: [pmdSeriesId], references: [id], onDelete: Restrict)
+  contract         Contract?         @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  requestedByUser  User?             @relation("ScheduleVersionRequestedBy", fields: [requestedBy], references: [id], onDelete: Restrict)
+  approvedByUser   User?             @relation("ScheduleVersionApprovedBy", fields: [approvedBy], references: [id], onDelete: Restrict)
+  monthlySchedules MonthlySchedule[]
+
+  @@map("schedule_versions")
+}
+
+/// Matriz de programación mensual. El descuadre (sección 0.2 del prompt
+/// maestro) no bloquea el guardado: se marca en imbalanceFlag/imbalanceDetail
+/// y genera un AuditLog en la misma transacción.
+model MonthlySchedule {
+  id                String   @id @default(uuid())
+  scheduleVersionId String   @map("schedule_version_id")
+  contractId        String   @map("contract_id")
+  pmdSeriesId       String   @map("pmd_series_id")
+  periodYear        Int      @map("period_year")
+  periodMonth       Int      @map("period_month")
+  plannedAmount     Decimal  @map("planned_amount") @db.Decimal(18, 2)
+  imbalanceFlag     Boolean  @default(false) @map("imbalance_flag")
+  imbalanceDetail   Json?    @map("imbalance_detail")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  scheduleVersion ScheduleVersion @relation(fields: [scheduleVersionId], references: [id], onDelete: Restrict)
+  contract        Contract        @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  pmdSeries       PmdSeries       @relation(fields: [pmdSeriesId], references: [id], onDelete: Restrict)
+
+  @@unique([scheduleVersionId, contractId, periodYear, periodMonth])
+  @@index([contractId, periodYear, periodMonth])
+  @@map("monthly_schedules")
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5. Inversión real y facturación (DATA_DICTIONARY §2.14-2.15)
+// ─────────────────────────────────────────────────────────────
+
+model ActualInvestment {
+  id                    String   @id @default(uuid())
+  contractId            String   @map("contract_id")
+  pmdSeriesId           String   @map("pmd_series_id")
+  periodYear            Int      @map("period_year")
+  periodMonth           Int      @map("period_month")
+  investmentType        String   @map("investment_type") // Estimación|Factura|Anticipo|OENE|Producción|Ajuste|Reversión|Otro
+  grossAmount           Decimal  @map("gross_amount") @db.Decimal(18, 2)
+  amortization          Decimal  @default(0) @db.Decimal(18, 2)
+  retention             Decimal  @default(0) @db.Decimal(18, 2)
+  penalty               Decimal  @default(0) @db.Decimal(18, 2)
+  taxes                 Decimal  @default(0) @db.Decimal(18, 2)
+  recognizablePmdAmount Decimal  @map("recognizable_pmd_amount") @db.Decimal(18, 2)
+  status                String   @default("BORRADOR")
+  supersedesId          String?  @unique @map("supersedes_id")
+  evidenceAttachmentId  String?  @map("evidence_attachment_id")
+  capturedBy            String?  @map("captured_by")
+  validatedBy           String?  @map("validated_by")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  contract           Contract          @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  pmdSeries          PmdSeries         @relation(fields: [pmdSeriesId], references: [id], onDelete: Restrict)
+  supersedes         ActualInvestment? @relation("ActualInvestmentCorrection", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy       ActualInvestment? @relation("ActualInvestmentCorrection")
+  evidenceAttachment Attachment?       @relation(fields: [evidenceAttachmentId], references: [id], onDelete: Restrict)
+  capturedByUser     User?             @relation("ActualInvestmentCapturedBy", fields: [capturedBy], references: [id], onDelete: Restrict)
+  validatedByUser    User?             @relation("ActualInvestmentValidatedBy", fields: [validatedBy], references: [id], onDelete: Restrict)
+  invoice            Invoice?
+  estimate           Estimate?
+
+  @@index([contractId, periodYear, periodMonth])
+  @@index([pmdSeriesId, periodYear, periodMonth])
+  @@map("actual_investments")
+}
+
+model Invoice {
+  id                 String    @id @default(uuid())
+  actualInvestmentId String    @unique @map("actual_investment_id")
+  contractId         String    @map("contract_id")
+  invoiceNumber      String    @map("invoice_number")
+  issueDate          DateTime  @map("issue_date")
+  dueDate            DateTime? @map("due_date")
+
+  actualInvestment ActualInvestment @relation(fields: [actualInvestmentId], references: [id], onDelete: Restrict)
+  contract         Contract         @relation(fields: [contractId], references: [id], onDelete: Restrict)
+
+  @@unique([contractId, invoiceNumber])
+  @@map("invoices")
+}
+
+model Estimate {
+  id                 String   @id @default(uuid())
+  actualInvestmentId String   @unique @map("actual_investment_id")
+  contractId         String   @map("contract_id")
+  estimateNumber     String   @map("estimate_number")
+  periodStart        DateTime @map("period_start")
+  periodEnd          DateTime @map("period_end")
+
+  actualInvestment ActualInvestment @relation(fields: [actualInvestmentId], references: [id], onDelete: Restrict)
+  contract         Contract         @relation(fields: [contractId], references: [id], onDelete: Restrict)
+
+  @@unique([contractId, estimateNumber])
+  @@map("estimates")
+}
+
+/// Estatus de OENE por Orden de Compra — origen directo del PPTX de GAP,
+/// slide 4 (DATA_DICTIONARY §2.15).
+model OeneRecord {
+  id               String   @id @default(uuid())
+  contractId       String   @map("contract_id")
+  purchaseOrder    String   @map("purchase_order")
+  contractedBudget Decimal  @map("contracted_budget") @db.Decimal(18, 2)
+  oeneTotal        Decimal  @map("oene_total") @db.Decimal(18, 2)
+  oeneContracted   Decimal  @map("oene_contracted") @db.Decimal(18, 2)
+  oeneToRegularize Decimal  @map("oene_to_regularize") @db.Decimal(18, 2)
+  oeneToInvoice    Decimal  @map("oene_to_invoice") @db.Decimal(18, 2)
+  oenePercentage   Decimal  @map("oene_percentage") @db.Decimal(7, 4)
+  period           DateTime
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Restrict)
+
+  @@map("oene_records")
+}
+
+/// Configuración del criterio oficial de reconocimiento de inversión real PMD
+/// por cliente/aeropuerto/año (sección 6.6 del prompt maestro).
+model PmdRecognitionConfig {
+  id             String  @id @default(uuid())
+  clientId       String  @map("client_id")
+  airportId      String? @map("airport_id")
+  pmdYearId      String? @map("pmd_year_id")
+  investmentType String? @map("investment_type")
+  criterion      String // Producción ejecutada | Estimación presentada | ... | OENE reconocida
+
+  @@unique([clientId, airportId, pmdYearId, investmentType])
+  @@map("pmd_recognition_configs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// 6. Hitos, riesgos y protección de inversión (DATA_DICTIONARY §2.16-2.20)
+// ─────────────────────────────────────────────────────────────
+
+model Milestone {
+  id                String    @id @default(uuid())
+  scopeType         String    @map("scope_type") // ANNUAL | MONTHLY | MANAGEMENT
+  pmdSeriesId       String?   @map("pmd_series_id")
+  contractId        String?   @map("contract_id")
+  name              String
+  baselineDate      DateTime? @map("baseline_date")
+  forecastDate      DateTime? @map("forecast_date")
+  actualDate        DateTime? @map("actual_date")
+  responsibleUserId String?   @map("responsible_user_id")
+  status            String    @default("PENDIENTE")
+  decisionDeadline  DateTime? @map("decision_deadline")
+  protectedAmount   Decimal?  @map("protected_amount") @db.Decimal(18, 2)
+
+  pmdSeries       PmdSeries? @relation(fields: [pmdSeriesId], references: [id], onDelete: Restrict)
+  contract        Contract?  @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  responsibleUser User?      @relation(fields: [responsibleUserId], references: [id], onDelete: Restrict)
+  actions         Action[]
+
+  @@map("milestones")
+}
+
+model Risk {
+  id                   String   @id @default(uuid())
+  contractId           String   @map("contract_id")
+  exposedAmount        Decimal  @map("exposed_amount") @db.Decimal(18, 2)
+  exposurePeriod       String?  @map("exposure_period")
+  riskLevel            String   @map("risk_level") // ALTO | MEDIO | BAJO | CRITICO
+  stageGroup           String?  @map("stage_group") // en construcción | en licitación
+  status               String   @default("IDENTIFICADO")
+  trend                String?
+  evidenceAttachmentId String?  @map("evidence_attachment_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  contract           Contract         @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  evidenceAttachment Attachment?      @relation(fields: [evidenceAttachmentId], references: [id], onDelete: Restrict)
+  assessments        RiskAssessment[]
+  constraints        Constraint[]
+  actions            Action[]
+
+  @@map("risks")
+}
+
+model RiskAssessment {
+  id              String   @id @default(uuid())
+  riskId          String   @map("risk_id")
+  probability     Int
+  impact          Int
+  impactDimension String?  @map("impact_dimension")
+  assessedAt      DateTime @default(now()) @map("assessed_at")
+
+  risk Risk @relation(fields: [riskId], references: [id], onDelete: Restrict)
+
+  @@map("risk_assessments")
+}
+
+model Constraint {
+  id          String  @id @default(uuid())
+  riskId      String  @map("risk_id")
+  description String
+  cause       String?
+  consequence String?
+
+  risk Risk @relation(fields: [riskId], references: [id], onDelete: Restrict)
+
+  @@map("constraints")
+}
+
+model Action {
+  id                String    @id @default(uuid())
+  riskId            String?   @map("risk_id")
+  milestoneId       String?   @map("milestone_id")
+  description       String
+  responsibleUserId String?   @map("responsible_user_id")
+  commitmentDate    DateTime? @map("commitment_date")
+  decisionDeadline  DateTime? @map("decision_deadline")
+  status            String    @default("PENDIENTE")
+
+  risk            Risk?      @relation(fields: [riskId], references: [id], onDelete: Restrict)
+  milestone       Milestone? @relation(fields: [milestoneId], references: [id], onDelete: Restrict)
+  responsibleUser User?      @relation(fields: [responsibleUserId], references: [id], onDelete: Restrict)
+
+  @@map("actions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// 7. Autorizaciones y adjuntos (DATA_DICTIONARY §2.21-2.22)
+// ─────────────────────────────────────────────────────────────
+
+model ApprovalRequest {
+  id            String   @id @default(uuid())
+  entityType    String   @map("entity_type")
+  entityId      String   @map("entity_id")
+  requestType   String   @map("request_type")
+  status        String   @default("BORRADOR")
+  requestedBy   String   @map("requested_by")
+  reason        String?
+  beforeValue   Json?    @map("before_value")
+  afterValue    Json?    @map("after_value")
+  monthlyImpact Json?    @map("monthly_impact")
+  annualImpact  Decimal? @map("annual_impact") @db.Decimal(18, 2)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  requestedByUser User           @relation(fields: [requestedBy], references: [id], onDelete: Restrict)
+  steps           ApprovalStep[]
+
+  @@index([entityType, entityId])
+  @@map("approval_requests")
+}
+
+model ApprovalStep {
+  id                String    @id @default(uuid())
+  approvalRequestId String    @map("approval_request_id")
+  stepOrder         Int       @map("step_order")
+  approverUserId    String    @map("approver_user_id")
+  decision          String?
+  decidedAt         DateTime? @map("decided_at")
+  comments          String?
+
+  approvalRequest ApprovalRequest @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
+  approverUser    User            @relation(fields: [approverUserId], references: [id], onDelete: Restrict)
+
+  @@map("approval_steps")
+}
+
+/// Polimórfico: entityType + entityId apuntan a la entidad dueña del adjunto.
+model Attachment {
+  id          String   @id @default(uuid())
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  fileName    String   @map("file_name")
+  fileHash    String   @map("file_hash")
+  storagePath String   @map("storage_path")
+  uploadedBy  String?  @map("uploaded_by")
+  uploadedAt  DateTime @default(now()) @map("uploaded_at")
+
+  uploadedByUser     User?               @relation(fields: [uploadedBy], references: [id], onDelete: Restrict)
+  contractAmendments ContractAmendment[]
+  annualTargets      AnnualTarget[]
+  actualInvestments  ActualInvestment[]
+  risks              Risk[]
+
+  @@index([entityType, entityId])
+  @@map("attachments")
+}
+
+// ─────────────────────────────────────────────────────────────
+// 8. Conciliación, cierres y calidad de datos (DATA_DICTIONARY §2.24-2.25)
+// ─────────────────────────────────────────────────────────────
+
+model ReconciliationResult {
+  id            String   @id @default(uuid())
+  scopeType     String   @map("scope_type")
+  scopeRefId    String   @map("scope_ref_id")
+  expectedValue Decimal  @map("expected_value") @db.Decimal(18, 2)
+  actualValue   Decimal  @map("actual_value") @db.Decimal(18, 2)
+  difference    Decimal  @db.Decimal(18, 2)
+  tolerance     Decimal  @default(0) @db.Decimal(18, 2)
+  severity      String // Error | Advertencia | Informativo
+  generatedAt   DateTime @default(now()) @map("generated_at")
+  resolved      Boolean  @default(false)
+
+  @@index([scopeType, scopeRefId])
+  @@map("reconciliation_results")
+}
+
+model AccountingPeriod {
+  id             String    @id @default(uuid())
+  pmdYearId      String    @map("pmd_year_id")
+  periodMonth    Int       @map("period_month")
+  status         String    @default("ABIERTO")
+  closedBy       String?   @map("closed_by")
+  closedAt       DateTime? @map("closed_at")
+  reopenedReason String?   @map("reopened_reason")
+
+  closedByUser User?            @relation(fields: [closedBy], references: [id], onDelete: Restrict)
+  snapshots    PeriodSnapshot[]
+
+  @@unique([pmdYearId, periodMonth])
+  @@map("accounting_periods")
+}
+
+model PeriodSnapshot {
+  id                 String   @id @default(uuid())
+  accountingPeriodId String   @map("accounting_period_id")
+  snapshotData       Json     @map("snapshot_data")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  accountingPeriod AccountingPeriod @relation(fields: [accountingPeriodId], references: [id], onDelete: Restrict)
+
+  @@map("period_snapshots")
+}
+
+// ─────────────────────────────────────────────────────────────
+// 9. Seguridad, auditoría y notificaciones (DATA_DICTIONARY §2.26-2.28)
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id            String   @id @default(uuid())
+  clientId      String?  @map("client_id")
+  email         String   @unique
+  passwordHash  String   @map("password_hash")
+  fullName      String   @map("full_name")
+  externalIdpId String?  @map("external_idp_id")
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  client Client?     @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  roles  UserRole[]
+  scopes UserScope[]
+
+  pmdSeriesResponsible       PmdSeries[]
+  contractsResponsible       Contract[]
+  scheduleVersionsRequested  ScheduleVersion[]  @relation("ScheduleVersionRequestedBy")
+  scheduleVersionsApproved   ScheduleVersion[]  @relation("ScheduleVersionApprovedBy")
+  actualInvestmentsCaptured  ActualInvestment[] @relation("ActualInvestmentCapturedBy")
+  actualInvestmentsValidated ActualInvestment[] @relation("ActualInvestmentValidatedBy")
+  milestonesResponsible      Milestone[]
+  actionsResponsible         Action[]
+  approvalRequestsCreated    ApprovalRequest[]
+  approvalStepsAsApprover    ApprovalStep[]
+  attachmentsUploaded        Attachment[]
+  accountingPeriodsClosed    AccountingPeriod[]
+  annualTargetsApproved      AnnualTarget[]
+  auditLogs                  AuditLog[]
+  notifications              Notification[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String  @id @default(uuid())
+  code        String  @unique
+  name        String
+  description String?
+
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String  @id @default(uuid())
+  code        String  @unique // ej. PROGRAMACION.EDITAR, INVERSION_REAL.APROBAR
+  module      String
+  action      String
+  description String?
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  userId String @map("user_id")
+  roleId String @map("role_id")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+/// Alcance de permisos por cliente/aeropuerto/módulo/acción/techo monetario
+/// (sección 12.1 del prompt maestro).
+model UserScope {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  clientId        String?  @map("client_id")
+  airportId       String?  @map("airport_id")
+  module          String?
+  action          String?
+  monetaryCeiling Decimal? @map("monetary_ceiling") @db.Decimal(18, 2)
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  client  Client?  @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  airport Airport? @relation(fields: [airportId], references: [id], onDelete: Restrict)
+
+  @@map("user_scopes")
+}
+
+/// Bitácora inmutable desde la interfaz — solo INSERT vía backend
+/// (sección 12.3 del prompt maestro). Aquí también se registran los
+/// descuadres de programación no bloqueantes (sección 0.2).
+model AuditLog {
+  id                String   @id @default(uuid())
+  userId            String?  @map("user_id")
+  clientId          String?  @map("client_id")
+  action            String
+  entityType        String   @map("entity_type")
+  entityId          String   @map("entity_id")
+  beforeValue       Json?    @map("before_value")
+  afterValue        Json?    @map("after_value")
+  reason            String?
+  occurredAt        DateTime @default(now()) @map("occurred_at")
+  ipAddress         String?  @map("ip_address")
+  sessionId         String?  @map("session_id")
+  relatedApprovalId String?  @map("related_approval_id")
+
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  type      String
+  payload   Json
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────────────────────────
+// 10. Reservado para Fase 5 — versionado e importación de Excel PMD
+// (PMD_VERSIONING_RULES.md). Tablas creadas para reservar el esquema; sin
+// UI ni lógica activa en v1.
+// ─────────────────────────────────────────────────────────────
+
+model ImportBatch {
+  id           String   @id @default(uuid())
+  clientId     String   @map("client_id")
+  fileName     String   @map("file_name")
+  fileHash     String   @map("file_hash")
+  uploadedBy   String?  @map("uploaded_by")
+  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+  rowsAccepted Int      @default(0) @map("rows_accepted")
+  rowsRejected Int      @default(0) @map("rows_rejected")
+
+  mappings ImportMapping[]
+
+  @@map("import_batches")
+}
+
+model ImportMapping {
+  id            String @id @default(uuid())
+  importBatchId String @map("import_batch_id")
+  sourceField   String @map("source_field")
+  targetField   String @map("target_field")
+
+  importBatch ImportBatch @relation(fields: [importBatchId], references: [id], onDelete: Restrict)
+
+  @@map("import_mappings")
+}
+
+model PmdVersion {
+  id              String    @id @default(uuid())
+  clientId        String    @map("client_id")
+  airportId       String    @map("airport_id")
+  pmdCycleId      String    @map("pmd_cycle_id")
+  pmdYearId       String    @map("pmd_year_id")
+  revisionNumber  Int       @map("revision_number")
+  issueDate       DateTime? @map("issue_date")
+  uploadDate      DateTime  @default(now()) @map("upload_date")
+  uploadedBy      String?   @map("uploaded_by")
+  fileName        String?   @map("file_name")
+  fileHash        String?   @map("file_hash")
+  templateVersion String?   @map("template_version")
+  status          String    @default("BORRADOR")
+  comment         String?
+
+  files       PmdVersionFile[]
+  publication PmdPublicationEvent[]
+
+  @@map("pmd_versions")
+}
+
+model PmdVersionFile {
+  id           String @id @default(uuid())
+  pmdVersionId String @map("pmd_version_id")
+  storagePath  String @map("storage_path")
+  kind         String // ORIGINAL | EXPORTED
+
+  pmdVersion PmdVersion @relation(fields: [pmdVersionId], references: [id], onDelete: Restrict)
+
+  @@map("pmd_version_files")
+}
+
+model PmdVersionComparison {
+  id               String   @id @default(uuid())
+  fromPmdVersionId String   @map("from_pmd_version_id")
+  toPmdVersionId   String   @map("to_pmd_version_id")
+  generatedAt      DateTime @default(now()) @map("generated_at")
+
+  changes PmdVersionChange[]
+
+  @@map("pmd_version_comparisons")
+}
+
+model PmdVersionChange {
+  id                     String  @id @default(uuid())
+  pmdVersionComparisonId String  @map("pmd_version_comparison_id")
+  entity                 String
+  field                  String
+  oldValue               String? @map("old_value")
+  newValue               String? @map("new_value")
+  impact                 String?
+  validationState        String? @map("validation_state")
+  observation            String?
+
+  comparison PmdVersionComparison @relation(fields: [pmdVersionComparisonId], references: [id], onDelete: Restrict)
+
+  @@map("pmd_version_changes")
+}
+
+model PmdPublicationEvent {
+  id           String   @id @default(uuid())
+  pmdVersionId String   @map("pmd_version_id")
+  eventType    String   @map("event_type") // PUBLICACION | REVERSION
+  userId       String?  @map("user_id")
+  reason       String?
+  occurredAt   DateTime @default(now()) @map("occurred_at")
+
+  pmdVersion PmdVersion @relation(fields: [pmdVersionId], references: [id], onDelete: Restrict)
+
+  @@map("pmd_publication_events")
+}
