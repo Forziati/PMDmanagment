@@ -15,6 +15,7 @@ export default async function DashboardLayout({
 
   const links = [
     { href: "/", label: "Resumen" },
+    { href: "/dashboard", label: "Dashboard" },
     ...(hasPermission(user, "SERIES.VER") ? [{ href: "/series", label: "Series PMD" }] : []),
     ...(hasPermission(user, "CONTRATOS.VER") ? [{ href: "/contratos", label: "Contratos" }] : []),
     ...(hasPermission(user, "PROGRAMACION.VER")
