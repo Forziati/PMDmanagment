@@ -69,11 +69,10 @@ model PmdCycle {
 }
 
 model PmdYear {
-  id                 String  @id @default(uuid())
-  pmdCycleId         String  @map("pmd_cycle_id")
-  year               Int
-  escalationFactor   Decimal @default(1) @map("escalation_factor") @db.Decimal(10, 6)
-  annualTargetLocked Boolean @default(false) @map("annual_target_locked")
+  id               String  @id @default(uuid())
+  pmdCycleId       String  @map("pmd_cycle_id")
+  year             Int
+  escalationFactor Decimal @default(1) @map("escalation_factor") @db.Decimal(10, 6)
 
   pmdCycle     PmdCycle      @relation(fields: [pmdCycleId], references: [id], onDelete: Restrict)
   pmdSeries    PmdSeries[]

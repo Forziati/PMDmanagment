@@ -25,9 +25,11 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Protege todo excepto: /login, /api/auth/*, /api/health,
-     * assets estáticos de Next y archivos públicos.
+     * Protege solo páginas (redirige a /login). Las rutas /api/** aplican su
+     * propia verificación por Route Handler (requirePermission /
+     * getCurrentUser) y deben responder JSON 401/403, nunca un redirect
+     * HTML — por eso toda la familia /api queda excluida aquí.
      */
-    "/((?!login|api/auth|api/health|_next/static|_next/image|favicon.ico).*)",
+    "/((?!api|login|_next/static|_next/image|favicon.ico).*)",
   ],
 };

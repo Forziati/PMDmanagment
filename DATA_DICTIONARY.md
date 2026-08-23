@@ -74,7 +74,6 @@ Origen: columnas por año en `CashFlow` (`PMD 2024`…`PMD 2028`), factor de esc
 | pmd_cycle_id | FK pmd_cycles | |
 | year | INT | |
 | escalation_factor | NUMERIC(10,6) | ej. `1.0733085877599` para 2024 — de `CashFlow!I4` |
-| annual_target_locked | BOOLEAN | soporta sección 4.4 (protección del hito) |
 
 ### 2.5 `investment_groups`
 Origen: `Resumen CashFlow 2026!B6:B9` (`i. Diseño`, `ii. Obra`, `iii. Procura`, `iv. Dirección Proyecto y STE`) — coincide con los 4 grupos configurables del prompt maestro (+"Otros" **[Recomendado]**, no observado en la fuente).
