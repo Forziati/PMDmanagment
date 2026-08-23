@@ -17,6 +17,9 @@ export default async function DashboardLayout({
     { href: "/", label: "Dashboard" },
     ...(hasPermission(user, "SERIES.VER") ? [{ href: "/series", label: "Series PMD" }] : []),
     ...(hasPermission(user, "CONTRATOS.VER") ? [{ href: "/contratos", label: "Contratos" }] : []),
+    ...(hasPermission(user, "PROGRAMACION.VER")
+      ? [{ href: "/programacion", label: "Programación" }]
+      : []),
     ...(hasPermission(user, "ADMINISTRACION.VER")
       ? [{ href: "/administracion", label: "Administración" }]
       : []),
