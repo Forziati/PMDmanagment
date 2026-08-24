@@ -16,7 +16,12 @@ export default async function DashboardLayout({
   const links = [
     { href: "/", label: "Resumen" },
     { href: "/dashboard", label: "Dashboard" },
-    ...(hasPermission(user, "SERIES.VER") ? [{ href: "/series", label: "Series PMD" }] : []),
+    ...(hasPermission(user, "SERIES.VER")
+      ? [
+          { href: "/series", label: "Series PMD" },
+          { href: "/pmd-programado", label: "PMD Programado" },
+        ]
+      : []),
     ...(hasPermission(user, "CONTRATOS.VER") ? [{ href: "/contratos", label: "Contratos" }] : []),
     ...(hasPermission(user, "PROGRAMACION.VER")
       ? [{ href: "/programacion", label: "Programación" }]
