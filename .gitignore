@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# La plantilla sí se versiona: el README arranca con `cp .env.example .env`,
+# y sin ella quien clona el repo no sabe qué variables definir.
+!.env.example
 
 # vercel
 .vercel
