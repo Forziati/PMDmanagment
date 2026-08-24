@@ -469,6 +469,9 @@ model Risk {
   exposedAmount        Decimal  @map("exposed_amount") @db.Decimal(18, 2)
   exposurePeriod       String?  @map("exposure_period")
   riskLevel            String   @map("risk_level") // ALTO | MEDIO | BAJO | CRITICO
+  /// Estrategia de respuesta PMI: EVITAR | TRANSFERIR | MITIGAR | ACEPTAR.
+  /// Se sugiere a partir del nivel, pero el usuario puede cambiarla.
+  responseStrategy     String?  @map("response_strategy")
   stageGroup           String?  @map("stage_group") // en construcción | en licitación
   status               String   @default("IDENTIFICADO")
   trend                String?

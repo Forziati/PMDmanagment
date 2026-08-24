@@ -71,6 +71,18 @@ export async function POST(
   });
   if (existing) return jsonError(409, "Este contrato ya está asignado a esa serie.");
 
+  // Regla de negocio: un contrato pertenece a UNA sola serie PMD.
+  const otherAllocation = await prisma.contractSeriesAllocation.findFirst({
+    where: { contractId },
+    include: { pmdSeries: true },
+  });
+  if (otherAllocation) {
+    return jsonError(
+      409,
+      `Un contrato pertenece a una sola serie PMD. Este ya está asignado a la serie ${otherAllocation.pmdSeries.code} — ${otherAllocation.pmdSeries.name}; elimina esa asignación antes de crear otra.`,
+    );
+  }
+
   const allocation = await prisma.contractSeriesAllocation.create({
     data: { ...parsed.data, contractId },
     include: { pmdSeries: true },

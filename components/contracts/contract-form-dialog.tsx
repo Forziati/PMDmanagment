@@ -21,26 +21,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CONTRACT_STAGE_LABELS } from "@/lib/domain/contrato";
 
 export interface ContractFormOption {
   id: string;
   label: string;
 }
 
-export const CONTRACT_STAGE_LABELS: Record<string, string> = {
-  EN_DEFINICION: "En definición",
-  DISENO: "Diseño",
-  LISTO_PARA_LICITAR: "Listo para licitar",
-  LICITACION: "Licitación",
-  EVALUACION: "Evaluación",
-  PENDIENTE_DE_FALLO: "Pendiente de fallo",
-  CONTRATADO: "Contratado",
-  EJECUCION: "Ejecución",
-  SUSPENDIDO: "Suspendido",
-  TERMINADO: "Terminado",
-  CERRADO: "Cerrado",
-  CANCELADO: "Cancelado",
-};
+export { CONTRACT_STAGE_LABELS };
 
 export interface ContractFormValue {
   id?: string;
