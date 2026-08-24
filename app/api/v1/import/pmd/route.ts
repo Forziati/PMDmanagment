@@ -71,14 +71,44 @@ export async function POST(request: Request) {
     return NextResponse.json({ preview: true, ...summarize(parsed) });
   }
 
-  // El ciclo y los años los crea el seed; si no existen, se crean aquí para
-  // que la importación funcione sobre una base recién levantada.
-  const airport = await prisma.airport.findFirst({
-    where: { clientId: auth.clientId },
-    orderBy: { iataCode: "asc" },
-  });
-  if (!airport) {
-    return jsonError(409, "El cliente no tiene un aeropuerto configurado.");
+  // Cada importación pertenece a un aeropuerto/proyecto: uno ya existente
+  // (airportId) o uno nuevo (airportIataCode + airportName). Sin ninguno de
+  // los dos, se usa el primero del cliente para no romper compatibilidad
+  // con integraciones previas.
+  const airportId = formData.get("airportId");
+  const airportIataCode = formData.get("airportIataCode");
+  const airportName = formData.get("airportName");
+
+  let airport;
+  if (typeof airportId === "string" && airportId) {
+    airport = await prisma.airport.findFirst({
+      where: { id: airportId, clientId: auth.clientId },
+    });
+    if (!airport) return jsonError(400, "Aeropuerto inválido para este cliente.");
+  } else if (typeof airportIataCode === "string" && airportIataCode.trim()) {
+    const code = airportIataCode.trim().toUpperCase();
+    if (!/^[A-Z]{3,4}$/.test(code)) {
+      return jsonError(400, "El código IATA debe tener 3 o 4 letras (ej. CUN, MEX).");
+    }
+    const name = typeof airportName === "string" ? airportName.trim() : "";
+    if (!name) return jsonError(400, "Falta el nombre del aeropuerto.");
+
+    airport = await prisma.airport.upsert({
+      where: { clientId_iataCode: { clientId: auth.clientId, iataCode: code } },
+      update: {},
+      create: { clientId: auth.clientId, iataCode: code, name },
+    });
+  } else {
+    airport = await prisma.airport.findFirst({
+      where: { clientId: auth.clientId },
+      orderBy: { iataCode: "asc" },
+    });
+    if (!airport) {
+      return jsonError(
+        400,
+        "Elegí un aeropuerto o creá uno nuevo (código IATA y nombre) antes de importar.",
+      );
+    }
   }
 
   const startYear = IMPORT_YEARS[0];

@@ -6,6 +6,15 @@ import { useState, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -14,6 +23,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+
+export interface AirportOption {
+  id: string;
+  iataCode: string;
+  name: string;
+}
+
+const NEW_AIRPORT = "__nuevo__";
 
 interface SeriesPreview {
   code: string;
@@ -44,13 +61,20 @@ interface Preview {
 const money = (v: string) =>
   `$${Number(v).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export function ImportarClient() {
+export function ImportarClient({ airports }: { airports: AirportOption[] }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+
+  const [projectId, setProjectId] = useState<string>(
+    airports.length > 0 ? airports[0].id : NEW_AIRPORT,
+  );
+  const [newIataCode, setNewIataCode] = useState("");
+  const [newAirportName, setNewAirportName] = useState("");
+  const isNewProject = projectId === NEW_AIRPORT;
 
   function pickFile(event: ChangeEvent<HTMLInputElement>) {
     setFile(event.target.files?.[0] ?? null);
@@ -61,12 +85,22 @@ export function ImportarClient() {
 
   async function send(confirm: boolean) {
     if (!file) return;
+    if (isNewProject && (!newIataCode.trim() || !newAirportName.trim())) {
+      setError("Completá el código IATA y el nombre del nuevo aeropuerto.");
+      return;
+    }
     setLoading(true);
     setError(null);
 
     const body = new FormData();
     body.set("file", file);
     if (confirm) body.set("confirm", "true");
+    if (isNewProject) {
+      body.set("airportIataCode", newIataCode.trim());
+      body.set("airportName", newAirportName.trim());
+    } else {
+      body.set("airportId", projectId);
+    }
 
     const response = await fetch("/api/v1/import/pmd", { method: "POST", body });
     const payload = await response.json().catch(() => null);
@@ -94,6 +128,67 @@ export function ImportarClient() {
           qué va a importar; nada se guarda hasta que confirmes.
         </p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Proyecto</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="project">Aeropuerto / proyecto</Label>
+            <Select
+              value={projectId}
+              onValueChange={(v) => {
+                setProjectId(v);
+                setPreview(null);
+                setDone(false);
+              }}
+            >
+              <SelectTrigger id="project" className="w-full max-w-md">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {airports.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.iataCode} — {a.name}
+                  </SelectItem>
+                ))}
+                <SelectItem value={NEW_AIRPORT}>+ Nuevo aeropuerto / proyecto</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {isNewProject && (
+            <div className="grid max-w-md gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="iata">Código IATA</Label>
+                <Input
+                  id="iata"
+                  value={newIataCode}
+                  onChange={(e) => setNewIataCode(e.target.value.toUpperCase())}
+                  placeholder="ej. MEX"
+                  maxLength={4}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="airportName">Nombre</Label>
+                <Input
+                  id="airportName"
+                  value={newAirportName}
+                  onChange={(e) => setNewAirportName(e.target.value)}
+                  placeholder="ej. Aeropuerto Internacional de la Ciudad de México"
+                />
+              </div>
+            </div>
+          )}
+
+          <p className="text-muted-foreground text-xs">
+            Cada proyecto es independiente: sus series, contratos y programación no se mezclan
+            con los de otro aeropuerto. Para controlar un nuevo PMD, elegí &quot;+ Nuevo
+            aeropuerto&quot; e importá su Excel — no hace falta tocar nada más.
+          </p>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
