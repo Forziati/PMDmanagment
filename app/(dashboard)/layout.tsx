@@ -1,9 +1,17 @@
 import { redirect } from "next/navigation";
 
-import { getCurrentUser } from "@/lib/auth/current-user";
+import { AUTH_DISABLED, getCurrentUser } from "@/lib/auth/current-user";
 import { hasPermission } from "@/lib/auth/rbac";
 import { MainNav } from "@/components/nav/main-nav";
 import { LogoutButton } from "@/components/auth/logout-button";
+
+/**
+ * Todas las pantallas leen datos por petición, así que nunca se prerenderizan
+ * en el build. Marcarlo explícito importa porque en modo de un solo usuario no
+ * se leen cookies, y sin esa señal Next intentaría prerenderizarlas y fallaría
+ * al no tener base de datos disponible durante el build.
+ */
+export const dynamic = "force-dynamic";
 
 export default async function DashboardLayout({
   children,
@@ -42,12 +50,14 @@ export default async function DashboardLayout({
           <span className="text-sm font-semibold tracking-tight">PMD Control Hub</span>
           <MainNav links={links} />
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-muted-foreground hidden text-sm sm:inline">
-            {user.fullName}
-          </span>
-          <LogoutButton />
-        </div>
+        {!AUTH_DISABLED && (
+          <div className="flex items-center gap-3">
+            <span className="text-muted-foreground hidden text-sm sm:inline">
+              {user.fullName}
+            </span>
+            <LogoutButton />
+          </div>
+        )}
       </header>
       <main className="flex-1">{children}</main>
     </div>

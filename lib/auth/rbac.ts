@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { getCurrentUser, type CurrentUser } from "@/lib/auth/current-user";
+import { AUTH_DISABLED, getCurrentUser, type CurrentUser } from "@/lib/auth/current-user";
 
 export function hasPermission(user: CurrentUser, permissionCode: string): boolean {
+  // En modo de un solo usuario no hay roles que evaluar: todo está permitido.
+  if (AUTH_DISABLED) return true;
   return user.permissionCodes.includes(permissionCode);
 }
 

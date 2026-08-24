@@ -10,6 +10,13 @@ import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
  * lib/auth/rbac.ts, que sí consulta la base de datos.
  */
 export async function proxy(request: NextRequest) {
+  // Modo de un solo usuario (AUTH_DISABLED=true): no hay sesión que validar.
+  // Se lee del entorno directamente porque el proxy corre en el runtime edge
+  // y no comparte módulo con lib/auth/current-user.
+  if (process.env.AUTH_DISABLED === "true") {
+    return NextResponse.next();
+  }
+
   const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   const session = token ? await verifySessionToken(token) : null;
 
