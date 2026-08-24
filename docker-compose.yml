@@ -16,6 +16,24 @@ services:
       timeout: 5s
       retries: 10
 
+  # Prepara la base antes de que arranque la app: aplica migraciones y siembra
+  # catálogos, roles y el usuario inicial. Corre una vez y termina; la imagen
+  # de la app no trae el CLI de Prisma, por eso usa el stage `builder`.
+  # El seed es idempotente, así que repetirlo en cada `up` es seguro.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://pmd_user:pmd_password@db:5432/pmd_control_hub?schema=public"
+    command: >
+      sh -c "npx prisma migrate deploy --schema db/prisma/schema.prisma &&
+             npx tsx db/prisma/seed.ts"
+
   app:
     build:
       context: .
@@ -24,9 +42,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: "postgresql://pmd_user:pmd_password@db:5432/pmd_control_hub?schema=public"
-      SESSION_SECRET: "change-me-to-a-long-random-string"
+      # Cambiar por una cadena larga y aleatoria antes de exponer esto a nadie
+      # más: firma las sesiones. `openssl rand -base64 48` sirve.
+      SESSION_SECRET: "${SESSION_SECRET:-change-me-to-a-long-random-string}"
       PORT: 3000
     ports:
       - "3000:3000"

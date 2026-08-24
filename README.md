@@ -60,19 +60,61 @@ admin@pmdcontrolhub.local / ChangeMe123!
 | `npm run prisma:studio` | Explorador visual de la base de datos |
 | `npm run db:seed` | Ejecuta `db/prisma/seed.ts` |
 
-## Docker Compose (stack completo)
+## Docker Compose (stack completo, un solo comando)
+
+Es la forma más rápida de tener el sistema andando: no hace falta Node ni
+Postgres instalados, solo Docker.
 
 ```bash
-docker compose up -d --build
+git clone https://github.com/Forziati/PMDmanagment.git
+cd PMDmanagment
+docker compose up -d --build      # la primera vez tarda unos minutos
 ```
 
-Levanta `db` (Postgres 16) y `app` (Next.js standalone). La app expone
-`/api/health` para verificar conectividad a base de datos.
+Levanta tres servicios en orden: `db` (Postgres 16), `migrate` (aplica las
+migraciones y siembra catálogos, roles y el usuario inicial; corre una vez y
+termina) y `app` (Next.js), que arranca recién cuando `migrate` terminó bien.
+
+Cuando `docker compose ps` muestre `app` como *healthy*, entra a
+<http://localhost:3000> con el usuario del seed. Para ver el avance:
+
+```bash
+docker compose logs -f app
+```
+
+El seed es idempotente, así que repetir `up` no duplica nada, y los datos
+viven en el volumen `pmd_db_data` (sobreviven a `down`; se borran con
+`docker compose down -v`).
+
+Antes de que esto lo use alguien más, definí un `SESSION_SECRET` propio — es
+lo que firma las sesiones:
+
+```bash
+echo "SESSION_SECRET=$(openssl rand -base64 48)" >> .env
+docker compose up -d
+```
+
+## Pantallas
+
+| Pantalla | Ruta | Qué hace |
+|---|---|---|
+| Resumen | `/` | Grilla consolidada por serie y contrato, con filtros — equivalente al Cash Flow del Excel. Programado, real, desvío en dinero y %, OENE y monto adicional. |
+| Dashboard | `/dashboard` | Cumplimiento del año, Resumen Cash Flow (programado / real / balance por grupo de inversión y mes) y dona del faltante. |
+| Series PMD | `/series` | Alta y edición de series (Anexo 6 y monto actualizado). |
+| PMD Programado | `/pmd-programado` | Vista de control de solo lectura, espejo de la hoja "PMD 24-28": hitos por serie con desglose por año, factores de escalación y gráfico de pastel por año. |
+| Contratos | `/contratos` | Contratos, su empresa y etapa, asignación a serie, OENE y convenios. |
+| Programación | `/programacion` | Matriz mensual por contrato/serie, versionada (línea base → aprobadas). Advierte descuadres sin bloquear. |
+| Inversión real | `/inversion-real` | Estimaciones, facturas, anticipos y OENE por mes, con flujo de estados. Solo lo aprobado o cerrado alimenta la curva real. |
+| Riesgos | `/riesgos` | Un riesgo por contrato con su serie; probabilidad e impacto (matriz PMI), restricciones y acciones. |
+| Resumen ejecutivo | `/riesgos/resumen` | Hoja lista para imprimir o proyectar: KPIs, exposición total y detalle por riesgo. |
+| Administración | `/administracion` | Grupos de inversión, empresas, hito anual (con bloqueo) y factor de escalación. |
 
 ## Estado del proyecto
 
-En construcción por módulos (ver `MVP_BACKLOG.md`, Fase 3). Completado hasta
-ahora: cimientos (proyecto, esquema completo de base de datos, Docker
-Compose, seeds) y autenticación + RBAC base. El dashboard ejecutivo, series,
-contratos, programación mensual e inversión real se construyen a
-continuación, uno a la vez.
+Operativo de punta a punta para el ciclo principal: cargar series y
+contratos → programar el año → registrar la inversión real → ver el desvío y
+gestionar los riesgos. Ver `MVP_BACKLOG.md` para el detalle por fase.
+
+Pendiente: detalle de serie por línea de proyecto, criterio configurable de
+reconocimiento PMD (hoy cuenta todo lo aprobado o cerrado), forecast y curva
+S, e importación desde Excel (`PMD_VERSIONING_RULES.md`, Fase 5).
