@@ -11,6 +11,8 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx prisma generate --schema db/prisma/schema.prisma
+# La imagen sí necesita la salida standalone (en Vercel estorba).
+ENV BUILD_STANDALONE=true
 RUN npm run build
 
 FROM base AS runner

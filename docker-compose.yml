@@ -30,6 +30,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: "postgresql://pmd_user:pmd_password@db:5432/pmd_control_hub?schema=public"
+      DIRECT_URL: "postgresql://pmd_user:pmd_password@db:5432/pmd_control_hub?schema=public"
     command: >
       sh -c "npx prisma migrate deploy --schema db/prisma/schema.prisma &&
              npx tsx db/prisma/seed.ts"
@@ -46,6 +47,8 @@ services:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: "postgresql://pmd_user:pmd_password@db:5432/pmd_control_hub?schema=public"
+      DIRECT_URL: "postgresql://pmd_user:pmd_password@db:5432/pmd_control_hub?schema=public"
+      AUTH_DISABLED: "${AUTH_DISABLED:-true}"
       # Cambiar por una cadena larga y aleatoria antes de exponer esto a nadie
       # más: firma las sesiones. `openssl rand -base64 48` sirve.
       SESSION_SECRET: "${SESSION_SECRET:-change-me-to-a-long-random-string}"
