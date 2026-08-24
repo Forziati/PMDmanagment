@@ -37,6 +37,7 @@ export default async function DashboardLayout({
     ...(hasPermission(user, "INVERSION_REAL.VER")
       ? [{ href: "/inversion-real", label: "Inversión real" }]
       : []),
+    ...(hasPermission(user, "SERIES.CREAR") ? [{ href: "/importar", label: "Importar" }] : []),
     ...(hasPermission(user, "RIESGOS.VER") ? [{ href: "/riesgos", label: "Riesgos" }] : []),
     ...(hasPermission(user, "ADMINISTRACION.VER")
       ? [{ href: "/administracion", label: "Administración" }]
