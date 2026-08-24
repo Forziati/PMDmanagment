@@ -11,6 +11,11 @@ import {
   sumMonthlyArrays,
 } from "@/lib/domain/dashboard";
 import { cumulativeToDate } from "@/lib/domain/resumen";
+import {
+  REAL_STATUSES,
+  indexRealByContractSeries,
+  realKey,
+} from "@/lib/domain/inversion-real";
 import { sumMonths } from "@/lib/domain/monthly-schedule";
 import {
   DashboardPageClient,
@@ -109,33 +114,68 @@ export default async function DashboardPage({
       }),
     );
 
+    const realRecords = await prisma.actualInvestment.findMany({
+      where: {
+        contract: { clientId },
+        pmdSeries: { pmdYearId: selectedYear.id },
+        periodYear: selectedYear.year,
+        status: { in: REAL_STATUSES },
+      },
+      select: {
+        contractId: true,
+        pmdSeriesId: true,
+        periodMonth: true,
+        recognizablePmdAmount: true,
+      },
+    });
+    const realIndex = indexRealByContractSeries(
+      realRecords.map((r) => ({
+        contractId: r.contractId,
+        pmdSeriesId: r.pmdSeriesId,
+        periodMonth: r.periodMonth,
+        recognizablePmdAmount: r.recognizablePmdAmount.toString(),
+      })),
+    );
+
     // ── A/B/C: Resumen Cash Flow por grupo de inversión (hoja "Resumen CashFlow AAAA") ──
     // Se listan siempre los grupos configurados (aunque no tengan filas este
     // año, como en el Excel: i.Diseño/ii.Obra/iii.Procura/iv.Dirección
     // aparecen igual en $0), más "Sin grupo" solo si hay filas sin asignar.
-    const groupMap = new Map<string, { label: string; monthsArrays: string[][] }>();
+    const groupMap = new Map<
+      string,
+      { label: string; monthsArrays: string[][]; realArrays: string[][] }
+    >();
     for (const group of investmentGroups) {
-      groupMap.set(group.id, { label: group.name, monthsArrays: [] });
+      groupMap.set(group.id, { label: group.name, monthsArrays: [], realArrays: [] });
     }
     for (const row of rows) {
       const key = row.group?.id ?? "sin-grupo";
       const label = row.group?.name ?? "Sin grupo";
-      if (!groupMap.has(key)) groupMap.set(key, { label, monthsArrays: [] });
-      groupMap.get(key)!.monthsArrays.push(row.months);
+      if (!groupMap.has(key)) {
+        groupMap.set(key, { label, monthsArrays: [], realArrays: [] });
+      }
+      const entry = groupMap.get(key)!;
+      entry.monthsArrays.push(row.months);
+      const realMonths =
+        realIndex.get(realKey(row.allocation.contractId, row.allocation.pmdSeriesId)) ??
+        Array.from({ length: 12 }, () => new Decimal(0));
+      entry.realArrays.push(realMonths.map((d) => d.toString()));
     }
 
-    cashflowGroups = Array.from(groupMap.entries()).map(([id, { label, monthsArrays }]) => {
-      const programado = sumMonthlyArrays(monthsArrays);
-      const real = Array.from({ length: 12 }, () => new Decimal(0)); // Inversión Real: módulo pendiente
-      const balance = real.map((r, i) => r.minus(programado[i]));
-      return {
-        groupId: id,
-        groupLabel: label,
-        programado: programado.map((d) => d.toString()),
-        real: real.map((d) => d.toString()),
-        balance: balance.map((d) => d.toString()),
-      };
-    });
+    cashflowGroups = Array.from(groupMap.entries()).map(
+      ([id, { label, monthsArrays, realArrays }]) => {
+        const programado = sumMonthlyArrays(monthsArrays);
+        const real = sumMonthlyArrays(realArrays);
+        const balance = real.map((r, i) => r.minus(programado[i]));
+        return {
+          groupId: id,
+          groupLabel: label,
+          programado: programado.map((d) => d.toString()),
+          real: real.map((d) => d.toString()),
+          balance: balance.map((d) => d.toString()),
+        };
+      },
+    );
 
     const programadoTotals = sumMonthlyArrays(cashflowGroups.map((g) => g.programado));
     const realTotals = sumMonthlyArrays(cashflowGroups.map((g) => g.real));

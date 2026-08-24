@@ -6,6 +6,7 @@ import { hasPermission } from "@/lib/auth/rbac";
 import { prisma } from "@/lib/db";
 import { formatPesos } from "@/lib/money";
 import { cumulativeToDate } from "@/lib/domain/resumen";
+import { REAL_STATUSES, monthlyRealSeries } from "@/lib/domain/inversion-real";
 import {
   riskLevelFor,
   suggestedStrategyFor,
@@ -67,9 +68,25 @@ export default async function RiesgosPage() {
         programmed = cumulativeToDate(allocation.pmdSeries.pmdYear.year, months, today);
       }
 
-      // "Real a la fecha" queda en 0 hasta construir el módulo de Inversión
-      // Real — no se inventa un dato que todavía no existe.
-      const actual = new Decimal(0);
+      let actual = new Decimal(0);
+      if (allocation) {
+        const realRecords = await prisma.actualInvestment.findMany({
+          where: {
+            contractId: risk.contractId,
+            pmdSeriesId: allocation.pmdSeriesId,
+            periodYear: allocation.pmdSeries.pmdYear.year,
+            status: { in: REAL_STATUSES },
+          },
+          select: { periodMonth: true, recognizablePmdAmount: true },
+        });
+        const realMonths = monthlyRealSeries(
+          realRecords.map((r) => ({
+            periodMonth: r.periodMonth,
+            recognizablePmdAmount: r.recognizablePmdAmount.toString(),
+          })),
+        );
+        actual = cumulativeToDate(allocation.pmdSeries.pmdYear.year, realMonths, today);
+      }
       const dev = actual.minus(programmed);
 
       const assessment = risk.assessments[0];

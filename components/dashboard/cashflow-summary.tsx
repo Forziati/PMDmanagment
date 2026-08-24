@@ -143,8 +143,9 @@ export function CashFlowSummary({
               acumulado={totals.balanceAcumulado}
             />
             <p className="text-muted-foreground text-xs">
-              &quot;Real&quot; y &quot;Balance&quot; muestran $0 hasta construir el módulo de
-              Inversión Real (facturas/estimaciones/anticipos).
+              &quot;Real&quot; suma la inversión aprobada o cerrada del mes
+              (estimaciones, facturas, anticipos y OENE); &quot;Balance&quot; es real menos
+              programado.
             </p>
           </div>
 

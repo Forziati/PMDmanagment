@@ -5,6 +5,11 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db";
 import { formatPesos, formatPercentage, percentageDeviation } from "@/lib/money";
 import { cumulativeToDate } from "@/lib/domain/resumen";
+import {
+  REAL_STATUSES,
+  indexRealByContractSeries,
+  realKey,
+} from "@/lib/domain/inversion-real";
 import { ResumenPageClient, type ResumenRow } from "@/components/resumen/resumen-page-client";
 
 export default async function ResumenPage({
@@ -69,6 +74,29 @@ export default async function ResumenPage({
 
     const today = new Date();
 
+    const realRecords = await prisma.actualInvestment.findMany({
+      where: {
+        contract: { clientId },
+        pmdSeries: { pmdYearId: selectedYear.id },
+        periodYear: selectedYear.year,
+        status: { in: REAL_STATUSES },
+      },
+      select: {
+        contractId: true,
+        pmdSeriesId: true,
+        periodMonth: true,
+        recognizablePmdAmount: true,
+      },
+    });
+    const realIndex = indexRealByContractSeries(
+      realRecords.map((r) => ({
+        contractId: r.contractId,
+        pmdSeriesId: r.pmdSeriesId,
+        periodMonth: r.periodMonth,
+        recognizablePmdAmount: r.recognizablePmdAmount.toString(),
+      })),
+    );
+
     rows = await Promise.all(
       allocations.map(async (allocation) => {
         const vigente = await prisma.scheduleVersion.findFirst({
@@ -86,9 +114,10 @@ export default async function ResumenPage({
         });
 
         const programado = cumulativeToDate(selectedYear.year, months, today);
-        // "Avance real" queda en 0 hasta construir el módulo de Inversión Real
-        // (facturas/estimaciones/anticipos) — no se inventa un dato que no existe.
-        const real = new Decimal(0);
+        const realMonths =
+          realIndex.get(realKey(allocation.contractId, allocation.pmdSeriesId)) ??
+          Array.from({ length: 12 }, () => new Decimal(0));
+        const real = cumulativeToDate(selectedYear.year, realMonths, today);
         const desvio = real.minus(programado);
         const desvioPercent = percentageDeviation(desvio, programado);
 

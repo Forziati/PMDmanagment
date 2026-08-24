@@ -86,8 +86,8 @@ export function ResumenPageClient({
         <h1 className="text-xl font-semibold tracking-tight">Resumen PMD</h1>
         <p className="text-muted-foreground text-sm">
           Vista consolidada por serie y contrato, con filtros — equivalente al Cash Flow en
-          Excel. &quot;Real&quot; y &quot;Desvío&quot; quedan en $0 hasta construir el módulo de
-          Inversión Real.
+          Excel. &quot;Avance real&quot; suma la inversión aprobada o cerrada del año hasta el
+          mes en curso.
         </p>
       </div>
 
