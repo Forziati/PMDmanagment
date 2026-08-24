@@ -97,6 +97,7 @@ export function InversionRealClient({
   canApprove: boolean;
 }) {
   const router = useRouter();
+  const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
   const [gapWarning, setGapWarning] = useState<{
@@ -159,6 +160,7 @@ export function InversionRealClient({
     setForm(EMPTY_FORM);
     setGapWarning(null);
     setLoading(false);
+    setShowForm(false);
     router.refresh();
   }
 
@@ -182,20 +184,38 @@ export function InversionRealClient({
 
   return (
     <div className="flex flex-col gap-4 p-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">Inversión real</h1>
-        <p className="text-muted-foreground mt-1 max-w-3xl text-sm">
-          Estimaciones, facturas, anticipos y OENE por contrato y mes. Solo lo{" "}
-          <strong>aprobado o cerrado</strong> alimenta la curva real y el desvío contra lo
-          programado. Un registro aprobado no se edita: se corrige creando otro que lo
-          reemplaza.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Inversión real</h1>
+          <p className="text-muted-foreground mt-1 max-w-3xl text-sm">
+            Lo ya registrado a la fecha, en una vista de solo lectura. Solo lo{" "}
+            <strong>aprobado o cerrado</strong> alimenta la curva real y el desvío contra lo
+            programado. Un registro aprobado no se edita: se corrige creando otro que lo
+            reemplaza.
+          </p>
+        </div>
+        {canCreate && !showForm && (
+          <Button onClick={() => setShowForm(true)}>+ Registrar inversión</Button>
+        )}
       </div>
 
-      {canCreate && (
+      {canCreate && showForm && (
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Registrar inversión</CardTitle>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShowForm(false);
+                setForm(EMPTY_FORM);
+                setGapWarning(null);
+                setError(null);
+              }}
+            >
+              Cancelar
+            </Button>
           </CardHeader>
           <CardContent>
             <form

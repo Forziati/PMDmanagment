@@ -42,6 +42,9 @@ export default async function DashboardLayout({
     ...(hasPermission(user, "ADMINISTRACION.VER")
       ? [{ href: "/administracion", label: "Administración" }]
       : []),
+    ...(hasPermission(user, "AUDITORIA.VER")
+      ? [{ href: "/gestion-cambios", label: "Gestión de cambios" }]
+      : []),
   ];
 
   return (
