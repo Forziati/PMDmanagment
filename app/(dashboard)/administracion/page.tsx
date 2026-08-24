@@ -61,6 +61,7 @@ export default async function AdministracionPage() {
               label: `${py.pmdCycle.airport.iataCode} — ${py.pmdCycle.code} — ${py.year}`,
               amount: py.annualTarget?.amount.toString() ?? null,
               locked: py.annualTarget?.locked ?? null,
+              escalationFactor: py.escalationFactor.toString(),
             }))}
             canEdit={hasPermission(user, "ADMINISTRACION.EDITAR")}
             canApprove={hasPermission(user, "ADMINISTRACION.APROBAR")}

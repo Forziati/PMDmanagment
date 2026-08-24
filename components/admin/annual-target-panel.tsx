@@ -21,6 +21,7 @@ export interface AnnualTargetYearOption {
   label: string;
   amount: string | null;
   locked: boolean | null;
+  escalationFactor: string;
 }
 
 export function AnnualTargetPanel({
@@ -35,9 +36,11 @@ export function AnnualTargetPanel({
   const router = useRouter();
   const [selectedId, setSelectedId] = useState(years[0]?.pmdYearId ?? "");
   const [amount, setAmount] = useState(years[0]?.amount ?? "0");
+  const [factor, setFactor] = useState(years[0]?.escalationFactor ?? "1");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [factorLoading, setFactorLoading] = useState(false);
 
   const selected = years.find((y) => y.pmdYearId === selectedId) ?? years[0];
   const isLocked = Boolean(selected?.locked);
@@ -46,7 +49,31 @@ export function AnnualTargetPanel({
     setSelectedId(id);
     const year = years.find((y) => y.pmdYearId === id);
     setAmount(year?.amount ?? "0");
+    setFactor(year?.escalationFactor ?? "1");
     setError(null);
+  }
+
+  async function handleSaveFactor(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected) return;
+    setFactorLoading(true);
+    setError(null);
+
+    const response = await fetch(`/api/v1/pmd-years/${selected.pmdYearId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ escalationFactor: factor }),
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      setError(body?.error ?? "No se pudo guardar el factor de escalación.");
+      setFactorLoading(false);
+      return;
+    }
+
+    setFactorLoading(false);
+    router.refresh();
   }
 
   async function handleSaveAmount(event: FormEvent<HTMLFormElement>) {
@@ -179,6 +206,36 @@ export function AnnualTargetPanel({
           )}
 
           {error && <p className="text-destructive text-sm">{error}</p>}
+        </CardContent>
+      </Card>
+
+      <Card className="max-w-sm">
+        <CardHeader>
+          <CardTitle className="text-base">Factor de escalación</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <p className="text-muted-foreground text-xs">
+            Hoja &quot;PMD 24-28&quot; del Excel, celdas E5:I5 (= fila 111 de &quot;Datos PMD&quot;). Se
+            aplica al monto actualizado de cada serie para este año.
+          </p>
+          <form className="flex items-end gap-2" onSubmit={handleSaveFactor}>
+            <div className="flex flex-1 flex-col gap-2">
+              <Label htmlFor="escalation-factor">Factor</Label>
+              <Input
+                id="escalation-factor"
+                type="number"
+                step="0.0000001"
+                disabled={!canEdit}
+                value={factor}
+                onChange={(e) => setFactor(e.target.value)}
+              />
+            </div>
+            {canEdit && (
+              <Button type="submit" disabled={factorLoading}>
+                Guardar
+              </Button>
+            )}
+          </form>
         </CardContent>
       </Card>
     </div>
