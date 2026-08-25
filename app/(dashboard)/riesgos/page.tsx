@@ -20,7 +20,11 @@ import {
 import { CONTRACT_STAGE_LABELS } from "@/lib/domain/contrato";
 import { RiesgosPageClient, type RiesgoRow } from "@/components/riesgos/riesgos-page-client";
 
-/** Valores de desvío comunes a una fila, ya formateados para la tabla. */
+/**
+ * Valores de desvío comunes a una fila. Van formateados para la tabla y
+ * también en crudo, porque ordenar y filtrar por desvío en el navegador
+ * necesita números, no textos con signo de peso.
+ */
 function desvioLabels(desvio: DesvioDetectado | undefined) {
   if (!desvio) {
     return {
@@ -28,6 +32,8 @@ function desvioLabels(desvio: DesvioDetectado | undefined) {
       actualLabel: formatPesos(0),
       deviationLabel: formatPesos(0),
       deviationPercentLabel: "N/A",
+      deviationAmount: 0,
+      deviationPercent: null,
       isNegative: false,
       exceedsThreshold: false,
     };
@@ -37,6 +43,8 @@ function desvioLabels(desvio: DesvioDetectado | undefined) {
     actualLabel: formatPesos(desvio.actual),
     deviationLabel: formatPesos(desvio.deviation),
     deviationPercentLabel: formatPercentage(desvio.deviationPercent),
+    deviationAmount: desvio.deviation.toNumber(),
+    deviationPercent: desvio.deviationPercent?.toNumber() ?? null,
     isNegative: desvio.deviation.isNegative(),
     exceedsThreshold: desvio.exceedsThreshold,
   };
@@ -66,6 +74,7 @@ export default async function RiesgosPage() {
       contract: {
         include: {
           company: true,
+          investmentGroup: true,
           allocations: { include: { pmdSeries: true } },
         },
       },
@@ -101,6 +110,7 @@ export default async function RiesgosPage() {
       seriesCode: allocation?.pmdSeries.code ?? null,
       seriesName: allocation?.pmdSeries.name ?? null,
       companyName: risk.contract.company?.name ?? null,
+      groupName: risk.contract.investmentGroup?.name ?? null,
       stageLabel: CONTRACT_STAGE_LABELS[risk.contract.stage] ?? risk.contract.stage,
       ...desvioLabels(desvio),
       probability,
@@ -124,7 +134,11 @@ export default async function RiesgosPage() {
   const contracts = pendientes.length
     ? await prisma.contract.findMany({
         where: { id: { in: pendientes.map((d) => d.contractId) } },
-        include: { company: true, allocations: { include: { pmdSeries: true } } },
+        include: {
+          company: true,
+          investmentGroup: true,
+          allocations: { include: { pmdSeries: true } },
+        },
       })
     : [];
   const contractById = new Map(contracts.map((c) => [c.id, c]));
@@ -147,6 +161,7 @@ export default async function RiesgosPage() {
         seriesCode: allocation?.pmdSeries.code ?? null,
         seriesName: allocation?.pmdSeries.name ?? null,
         companyName: contract.company?.name ?? null,
+        groupName: contract.investmentGroup?.name ?? null,
         stageLabel: CONTRACT_STAGE_LABELS[contract.stage] ?? contract.stage,
         ...desvioLabels(desvio),
         // Todavía nadie evaluó este riesgo: se muestra la sugerencia derivada
@@ -163,13 +178,8 @@ export default async function RiesgosPage() {
     ];
   });
 
-  // Primero lo detectado y sin atender, ordenado por tamaño del desvío.
-  detectedRows.sort((a, b) => {
-    const pa = pendientes.find((d) => d.contractId === a.contractId)!.deviation.abs();
-    const pb = pendientes.find((d) => d.contractId === b.contractId)!.deviation.abs();
-    return pb.comparedTo(pa);
-  });
-
+  // El orden lo decide la pantalla: por monto o por porcentaje, según lo
+  // que se esté buscando.
   return (
     <RiesgosPageClient
       rows={[...detectedRows, ...registeredRows]}

@@ -48,11 +48,16 @@ export interface RiesgoRow {
   seriesCode: string | null;
   seriesName: string | null;
   companyName: string | null;
+  groupName: string | null;
   stageLabel: string;
   programmedLabel: string;
   actualLabel: string;
   deviationLabel: string;
   deviationPercentLabel: string;
+  /** Real − programado, en pesos. Negativo es atraso. */
+  deviationAmount: number;
+  /** Fracción (0.05 = 5%); null si no había nada programado. */
+  deviationPercent: number | null;
   exceedsThreshold: boolean;
   isNegative: boolean;
   probability: number;
@@ -72,6 +77,45 @@ const LEVEL_VARIANT: Record<RiskLevel, "default" | "secondary" | "destructive" |
   CRITICO: "destructive",
 };
 
+const TODOS = "TODOS";
+
+/**
+ * Filtros de desvío. "Atraso" y "sobregiro" separan las dos formas de
+ * desviarse; los cortes por porcentaje sirven para quedarse solo con los
+ * casos graves cuando hay decenas de contratos en la lista.
+ */
+const DESVIO_FILTERS: Record<string, { label: string; test: (row: RiesgoRow) => boolean }> = {
+  [TODOS]: { label: "Cualquier desvío", test: () => true },
+  ATRASO: { label: "Solo atrasos (real por debajo)", test: (r) => r.deviationAmount < 0 },
+  SOBREGIRO: { label: "Solo sobregiros (real por encima)", test: (r) => r.deviationAmount > 0 },
+  P25: {
+    label: "Mayor a 25%",
+    test: (r) => r.deviationPercent !== null && Math.abs(r.deviationPercent) > 0.25,
+  },
+  P50: {
+    label: "Mayor a 50%",
+    test: (r) => r.deviationPercent !== null && Math.abs(r.deviationPercent) > 0.5,
+  },
+};
+
+const SORTS: Record<string, { label: string; value: (row: RiesgoRow) => number }> = {
+  MONTO: { label: "Mayor desvío en $", value: (r) => Math.abs(r.deviationAmount) },
+  PORCENTAJE: {
+    label: "Mayor desvío en %",
+    value: (r) => (r.deviationPercent === null ? -1 : Math.abs(r.deviationPercent)),
+  },
+};
+
+/** Opciones de un filtro, tomadas de las filas que hay para no ofrecer valores vacíos. */
+function optionsFrom(rows: RiesgoRow[], pick: (row: RiesgoRow) => string | null): string[] {
+  const values = new Set<string>();
+  for (const row of rows) {
+    const value = pick(row);
+    if (value) values.add(value);
+  }
+  return [...values].sort((a, b) => a.localeCompare(b));
+}
+
 export function RiesgosPageClient({
   rows,
   canEdit,
@@ -90,25 +134,51 @@ export function RiesgosPageClient({
   const router = useRouter();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState({ constraintText: "", actionText: "" });
-  const [levelFilter, setLevelFilter] = useState<string>("TODOS");
-  const [seriesFilter, setSeriesFilter] = useState<string>("TODAS");
-  const [originFilter, setOriginFilter] = useState<string>("TODOS");
+  const [levelFilter, setLevelFilter] = useState<string>(TODOS);
+  const [seriesFilter, setSeriesFilter] = useState<string>(TODOS);
+  const [groupFilter, setGroupFilter] = useState<string>(TODOS);
+  const [companyFilter, setCompanyFilter] = useState<string>(TODOS);
+  const [stageFilter, setStageFilter] = useState<string>(TODOS);
+  const [desvioFilter, setDesvioFilter] = useState<string>(TODOS);
+  const [originFilter, setOriginFilter] = useState<string>(TODOS);
+  const [sortBy, setSortBy] = useState<string>("MONTO");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const seriesOptions = useMemo(() => {
-    const codes = new Set<string>();
-    for (const r of rows) if (r.seriesCode) codes.add(r.seriesCode);
-    return [...codes].sort();
-  }, [rows]);
+  const seriesOptions = useMemo(() => optionsFrom(rows, (r) => r.seriesCode), [rows]);
+  const groupOptions = useMemo(() => optionsFrom(rows, (r) => r.groupName), [rows]);
+  const companyOptions = useMemo(() => optionsFrom(rows, (r) => r.companyName), [rows]);
+  const stageOptions = useMemo(() => optionsFrom(rows, (r) => r.stageLabel), [rows]);
 
-  const visible = rows.filter(
-    (r) =>
-      (levelFilter === "TODOS" || r.level === levelFilter) &&
-      (seriesFilter === "TODAS" || r.seriesCode === seriesFilter) &&
-      (originFilter === "TODOS" ||
-        (originFilter === "DETECTADOS" ? r.detected : !r.detected)),
-  );
+  const visible = useMemo(() => {
+    const filtered = rows.filter(
+      (r) =>
+        (levelFilter === TODOS || r.level === levelFilter) &&
+        (seriesFilter === TODOS || r.seriesCode === seriesFilter) &&
+        (groupFilter === TODOS || (r.groupName ?? "Sin grupo") === groupFilter) &&
+        (companyFilter === TODOS || r.companyName === companyFilter) &&
+        (stageFilter === TODOS || r.stageLabel === stageFilter) &&
+        (originFilter === TODOS || (originFilter === "DETECTADOS" ? r.detected : !r.detected)) &&
+        DESVIO_FILTERS[desvioFilter].test(r),
+    );
+
+    // Lo detectado y sin atender va primero: es lo que hay que mirar. Dentro
+    // de cada bloque manda el criterio de orden elegido.
+    const value = SORTS[sortBy].value;
+    return filtered.sort(
+      (a, b) => Number(b.detected) - Number(a.detected) || value(b) - value(a),
+    );
+  }, [
+    rows,
+    levelFilter,
+    seriesFilter,
+    groupFilter,
+    companyFilter,
+    stageFilter,
+    originFilter,
+    desvioFilter,
+    sortBy,
+  ]);
 
   /**
    * Convierte un desvío detectado en un riesgo gestionable: a partir de acá
@@ -194,13 +264,13 @@ export function RiesgosPageClient({
         </Button>
       </div>
 
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Select value={seriesFilter} onValueChange={setSeriesFilter}>
-          <SelectTrigger className="w-52">
+          <SelectTrigger className="w-44">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="TODAS">Todas las series</SelectItem>
+            <SelectItem value={TODOS}>Todas las series</SelectItem>
             {seriesOptions.map((code) => (
               <SelectItem key={code} value={code}>
                 Serie {code}
@@ -208,22 +278,73 @@ export function RiesgosPageClient({
             ))}
           </SelectContent>
         </Select>
-        <Select value={originFilter} onValueChange={setOriginFilter}>
-          <SelectTrigger className="w-52">
+        <Select value={groupFilter} onValueChange={setGroupFilter}>
+          <SelectTrigger className="w-48">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="TODOS">Todos los orígenes</SelectItem>
+            <SelectItem value={TODOS}>Todos los grupos</SelectItem>
+            {groupOptions.map((name) => (
+              <SelectItem key={name} value={name}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={companyFilter} onValueChange={setCompanyFilter}>
+          <SelectTrigger className="w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={TODOS}>Todas las empresas</SelectItem>
+            {companyOptions.map((name) => (
+              <SelectItem key={name} value={name}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={stageFilter} onValueChange={setStageFilter}>
+          <SelectTrigger className="w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={TODOS}>Todas las etapas</SelectItem>
+            {stageOptions.map((label) => (
+              <SelectItem key={label} value={label}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={desvioFilter} onValueChange={setDesvioFilter}>
+          <SelectTrigger className="w-56">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(DESVIO_FILTERS).map(([key, { label }]) => (
+              <SelectItem key={key} value={key}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={originFilter} onValueChange={setOriginFilter}>
+          <SelectTrigger className="w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={TODOS}>Todos los orígenes</SelectItem>
             <SelectItem value="DETECTADOS">Detectados por desvío</SelectItem>
             <SelectItem value="REGISTRADOS">Registrados</SelectItem>
           </SelectContent>
         </Select>
         <Select value={levelFilter} onValueChange={setLevelFilter}>
-          <SelectTrigger className="w-52">
+          <SelectTrigger className="w-44">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="TODOS">Todos los niveles</SelectItem>
+            <SelectItem value={TODOS}>Todos los niveles</SelectItem>
             {(Object.keys(RISK_LEVEL_LABELS) as RiskLevel[]).map((level) => (
               <SelectItem key={level} value={level}>
                 {RISK_LEVEL_LABELS[level]}
@@ -231,6 +352,21 @@ export function RiesgosPageClient({
             ))}
           </SelectContent>
         </Select>
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(SORTS).map(([key, { label }]) => (
+              <SelectItem key={key} value={key}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="text-muted-foreground text-sm">
+          {visible.length} de {rows.length}
+        </span>
       </div>
 
       {error && <p className="text-destructive text-sm">{error}</p>}
@@ -372,6 +508,9 @@ function RiskRows({
           ) : (
             <span className="text-muted-foreground text-xs">Sin serie asignada</span>
           )}
+          <div className="text-muted-foreground mt-1 text-xs">
+            {row.groupName ?? "Sin grupo"}
+          </div>
         </TableCell>
         <TableCell className="max-w-[9rem] truncate text-sm" title={row.companyName ?? undefined}>
           {row.companyName ?? "—"}
