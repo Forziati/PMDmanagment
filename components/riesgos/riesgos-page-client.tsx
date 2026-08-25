@@ -36,7 +36,12 @@ import {
 } from "@/lib/domain/riesgo";
 
 export interface RiesgoRow {
-  riskId: string;
+  /** Clave de React: los detectados todavía no tienen id propio. */
+  key: string;
+  /** null mientras el desvío no se haya registrado como riesgo. */
+  riskId: string | null;
+  /** true si lo levantó el sistema por apartarse de lo programado. */
+  detected: boolean;
   contractId: string;
   contractNumber: string;
   contractName: string;
@@ -47,6 +52,8 @@ export interface RiesgoRow {
   programmedLabel: string;
   actualLabel: string;
   deviationLabel: string;
+  deviationPercentLabel: string;
+  exceedsThreshold: boolean;
   isNegative: boolean;
   probability: number;
   impact: number;
@@ -55,6 +62,7 @@ export interface RiesgoRow {
   status: RiskStatus;
   constraintText: string;
   actionText: string;
+  suggestedImpact: number;
 }
 
 const LEVEL_VARIANT: Record<RiskLevel, "default" | "secondary" | "destructive" | "outline"> = {
@@ -67,15 +75,24 @@ const LEVEL_VARIANT: Record<RiskLevel, "default" | "secondary" | "destructive" |
 export function RiesgosPageClient({
   rows,
   canEdit,
+  canCreate,
+  umbralLabel,
+  controlYearLabel,
+  detectedCount,
 }: {
   rows: RiesgoRow[];
   canEdit: boolean;
+  canCreate: boolean;
+  umbralLabel: string;
+  controlYearLabel: string | null;
+  detectedCount: number;
 }) {
   const router = useRouter();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState({ constraintText: "", actionText: "" });
   const [levelFilter, setLevelFilter] = useState<string>("TODOS");
   const [seriesFilter, setSeriesFilter] = useState<string>("TODAS");
+  const [originFilter, setOriginFilter] = useState<string>("TODOS");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -88,8 +105,37 @@ export function RiesgosPageClient({
   const visible = rows.filter(
     (r) =>
       (levelFilter === "TODOS" || r.level === levelFilter) &&
-      (seriesFilter === "TODAS" || r.seriesCode === seriesFilter),
+      (seriesFilter === "TODAS" || r.seriesCode === seriesFilter) &&
+      (originFilter === "TODOS" ||
+        (originFilter === "DETECTADOS" ? r.detected : !r.detected)),
   );
+
+  /**
+   * Convierte un desvío detectado en un riesgo gestionable: a partir de acá
+   * admite probabilidad, impacto, estrategia, restricción y acción.
+   */
+  async function registerRisk(row: RiesgoRow) {
+    setLoading(true);
+    setError(null);
+    const response = await fetch("/api/v1/risks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contractId: row.contractId,
+        probability: row.probability,
+        impact: row.suggestedImpact,
+        status: "IDENTIFICADO",
+        constraintDescription: `Desvío detectado: programado ${row.programmedLabel} contra real ${row.actualLabel} (${row.deviationPercentLabel}).`,
+      }),
+    });
+    setLoading(false);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      setError(payload?.error ?? "No se pudo registrar el riesgo.");
+      return;
+    }
+    router.refresh();
+  }
 
   async function patchRisk(riskId: string, body: Record<string, unknown>) {
     setLoading(true);
@@ -110,7 +156,7 @@ export function RiesgosPageClient({
   }
 
   function startEdit(row: RiesgoRow) {
-    setEditingId(row.riskId);
+    setEditingId(row.key);
     setDraft({ constraintText: row.constraintText, actionText: row.actionText });
     setError(null);
   }
@@ -131,10 +177,17 @@ export function RiesgosPageClient({
             Riesgos y protección de inversión
           </h1>
           <p className="text-muted-foreground mt-1 max-w-3xl text-sm">
-            Un riesgo por contrato, indicando la serie PMD a la que pertenece. Probabilidad e
-            Impacto se eligen por fila; el nivel y la estrategia de respuesta se calculan según
-            la matriz PMI.
+            Un riesgo por contrato, indicando la serie PMD a la que pertenece. Todo contrato
+            que a la fecha se aparte más de {umbralLabel} de lo programado entra solo a esta
+            lista{controlYearLabel ? ` (${controlYearLabel})` : ""}. Probabilidad e Impacto se
+            eligen por fila; el nivel y la estrategia de respuesta salen de la matriz PMI.
           </p>
+          {detectedCount > 0 && (
+            <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-400">
+              {detectedCount} contrato{detectedCount === 1 ? "" : "s"} con desvío mayor a{" "}
+              {umbralLabel} sin riesgo registrado.
+            </p>
+          )}
         </div>
         <Button variant="outline" asChild>
           <Link href="/riesgos/resumen">Resumen ejecutivo</Link>
@@ -153,6 +206,16 @@ export function RiesgosPageClient({
                 Serie {code}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+        <Select value={originFilter} onValueChange={setOriginFilter}>
+          <SelectTrigger className="w-52">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="TODOS">Todos los orígenes</SelectItem>
+            <SelectItem value="DETECTADOS">Detectados por desvío</SelectItem>
+            <SelectItem value="REGISTRADOS">Registrados</SelectItem>
           </SelectContent>
         </Select>
         <Select value={levelFilter} onValueChange={setLevelFilter}>
@@ -194,6 +257,12 @@ export function RiesgosPageClient({
                   </span>
                 </TableHead>
                 <TableHead className="text-right">Desvío</TableHead>
+                <TableHead className="text-right">
+                  Desvío %
+                  <span className="text-muted-foreground block text-xs font-normal">
+                    umbral {umbralLabel}
+                  </span>
+                </TableHead>
                 <TableHead>Probabilidad</TableHead>
                 <TableHead>Impacto</TableHead>
                 <TableHead>
@@ -208,24 +277,28 @@ export function RiesgosPageClient({
             <TableBody>
               {visible.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="text-muted-foreground py-8 text-center">
+                  <TableCell colSpan={12} className="text-muted-foreground py-8 text-center">
                     No hay riesgos registrados que coincidan con los filtros.
                   </TableCell>
                 </TableRow>
               ) : (
                 visible.map((row) => (
                   <RiskRows
-                    key={row.riskId}
+                    key={row.key}
                     row={row}
-                    canEdit={canEdit}
+                    canEdit={canEdit && row.riskId !== null}
+                    canCreate={canCreate}
                     loading={loading}
-                    isEditing={editingId === row.riskId}
+                    isEditing={editingId === row.key}
                     draft={draft}
                     setDraft={setDraft}
                     onStartEdit={() => startEdit(row)}
                     onCancel={() => setEditingId(null)}
-                    onSave={() => saveEdit(row.riskId)}
-                    onPatch={(body) => patchRisk(row.riskId, body)}
+                    onSave={() => row.riskId && saveEdit(row.riskId)}
+                    onPatch={(body) =>
+                      row.riskId ? patchRisk(row.riskId, body) : Promise.resolve(false)
+                    }
+                    onRegister={() => registerRisk(row)}
                   />
                 ))
               )}
@@ -240,6 +313,7 @@ export function RiesgosPageClient({
 function RiskRows({
   row,
   canEdit,
+  canCreate,
   loading,
   isEditing,
   draft,
@@ -248,9 +322,11 @@ function RiskRows({
   onCancel,
   onSave,
   onPatch,
+  onRegister,
 }: {
   row: RiesgoRow;
   canEdit: boolean;
+  canCreate: boolean;
   loading: boolean;
   isEditing: boolean;
   draft: { constraintText: string; actionText: string };
@@ -259,15 +335,34 @@ function RiskRows({
   onCancel: () => void;
   onSave: () => void;
   onPatch: (body: Record<string, unknown>) => Promise<boolean>;
+  onRegister: () => void;
 }) {
   const hasSavedText = Boolean(row.constraintText || row.actionText);
 
   return (
     <>
-      <TableRow>
+      <TableRow className={row.detected ? "bg-amber-50/60 dark:bg-amber-950/20" : undefined}>
         <TableCell>
           <div className="font-medium whitespace-nowrap">{row.contractNumber}</div>
           <div className="text-muted-foreground text-xs">{row.contractName}</div>
+          {row.detected && (
+            // El aviso vive en la primera columna porque la tabla es más
+            // ancha que la pantalla: puesto al final de la fila, el botón
+            // quedaba fuera de vista.
+            <div className="mt-1 flex flex-col items-start gap-1">
+              <Badge
+                variant="outline"
+                className="border-amber-400 whitespace-nowrap text-amber-800 dark:border-amber-700 dark:text-amber-300"
+              >
+                Detectado por desvío
+              </Badge>
+              {canCreate && (
+                <Button size="sm" variant="outline" onClick={onRegister} disabled={loading}>
+                  Registrar riesgo
+                </Button>
+              )}
+            </div>
+          )}
         </TableCell>
         <TableCell>
           {row.seriesCode ? (
@@ -292,6 +387,13 @@ function RiskRows({
           className={`text-right whitespace-nowrap ${row.isNegative ? "text-destructive" : ""}`}
         >
           {row.deviationLabel}
+        </TableCell>
+        <TableCell
+          className={`text-right font-medium whitespace-nowrap ${
+            row.exceedsThreshold ? "text-destructive" : "text-muted-foreground"
+          }`}
+        >
+          {row.deviationPercentLabel}
         </TableCell>
         <TableCell>
           <Select
@@ -359,7 +461,7 @@ function RiskRows({
 
       {isEditing ? (
         <TableRow className="bg-accent/40 hover:bg-accent/40">
-          <TableCell colSpan={11} className="p-4">
+          <TableCell colSpan={12} className="p-4">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="flex flex-col gap-2">
                 <Label htmlFor={`constraint-${row.riskId}`}>Restricciones</Label>
@@ -395,7 +497,7 @@ function RiskRows({
       ) : (
         (hasSavedText || canEdit) && (
           <TableRow className="hover:bg-transparent">
-            <TableCell colSpan={11} className="pt-0 pb-3">
+            <TableCell colSpan={12} className="pt-0 pb-3">
               {hasSavedText && (
                 <div className="bg-muted grid gap-4 rounded-r-md border-l-2 px-3 py-2 text-sm md:grid-cols-2">
                   <div>
