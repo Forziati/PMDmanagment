@@ -13,6 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { KpiBarChart, type KpiBar } from "@/components/charts/kpi-bar-chart";
 import { CashFlowSummary, type CashFlowGroupRow, type TopContractRow } from "@/components/dashboard/cashflow-summary";
 import { FaltanteBreakdown, type DonutBreakdownRow } from "@/components/dashboard/faltante-breakdown";
+import { DiagnosticoPanel } from "@/components/shared/diagnostico-panel";
+import type { Diagnostico } from "@/lib/domain/diagnostico";
 
 export type { CashFlowGroupRow, TopContractRow, DonutBreakdownRow };
 
@@ -36,10 +38,12 @@ export function DashboardPageClient({
   donutSlices,
   donutBreakdown,
   remainingMonthLabels,
+  diagnostico,
 }: {
   years: FilterOption[];
   series: FilterOption[];
   companies: FilterOption[];
+  diagnostico: Diagnostico | null;
   selected: { pmdYearId: string; seriesId: string; companyId: string };
   monthLabels: string[];
   cashflowGroups: CashFlowGroupRow[];
@@ -118,6 +122,8 @@ export function DashboardPageClient({
           </Select>
         </div>
       </div>
+
+      {diagnostico && <DiagnosticoPanel diagnostico={diagnostico} />}
 
       <Card>
         <CardHeader>

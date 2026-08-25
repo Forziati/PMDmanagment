@@ -3,6 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
+import { DiagnosticoPanel } from "@/components/shared/diagnostico-panel";
+import type { Diagnostico } from "@/lib/domain/diagnostico";
 import {
   Select,
   SelectContent,
@@ -53,12 +55,14 @@ export function ResumenPageClient({
   companies,
   rows,
   selected,
+  diagnostico,
 }: {
   years: FilterOption[];
   series: FilterOption[];
   investmentGroups: FilterOption[];
   companies: FilterOption[];
   rows: ResumenRow[];
+  diagnostico: Diagnostico | null;
   selected: {
     pmdYearId: string;
     seriesId: string;
@@ -90,6 +94,8 @@ export function ResumenPageClient({
           mes en curso.
         </p>
       </div>
+
+      {diagnostico && <DiagnosticoPanel diagnostico={diagnostico} />}
 
       <div className="flex flex-wrap gap-3">
         <Select value={selected.pmdYearId} onValueChange={(v) => setParam("pmdYearId", v)}>

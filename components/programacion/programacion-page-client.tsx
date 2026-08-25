@@ -33,6 +33,8 @@ import {
 } from "@/components/ui/table";
 import { formatPesos } from "@/lib/money";
 import type { MonthlyImbalance, MonthlyAdjustmentSuggestion } from "@/lib/domain/monthly-schedule";
+import { DiagnosticoPanel } from "@/components/shared/diagnostico-panel";
+import type { Diagnostico } from "@/lib/domain/diagnostico";
 
 const MONTH_LABELS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
@@ -67,11 +69,13 @@ export function ProgramacionPageClient({
   selectedYearId,
   rows,
   canEdit,
+  diagnostico,
 }: {
   years: ProgramacionYearOption[];
   selectedYearId: string;
   rows: ProgramacionRow[];
   canEdit: boolean;
+  diagnostico: Diagnostico | null;
 }) {
   const router = useRouter();
   const [months, setMonths] = useState<Record<string, string[]>>(() =>
@@ -194,6 +198,8 @@ export function ProgramacionPageClient({
           </SelectContent>
         </Select>
       </div>
+
+      {diagnostico && <DiagnosticoPanel diagnostico={diagnostico} />}
 
       {canEdit && (
         <div className="flex flex-col gap-2">

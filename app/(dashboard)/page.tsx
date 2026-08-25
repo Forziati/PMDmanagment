@@ -6,6 +6,12 @@ import { prisma } from "@/lib/db";
 import { formatPesos, formatPercentage, percentageDeviation } from "@/lib/money";
 import { cumulativeToDate } from "@/lib/domain/resumen";
 import {
+  allocationKey,
+  emptyMonths,
+  plannedMonthsByAllocation,
+} from "@/lib/domain/programado";
+import { diagnosticarAnio } from "@/lib/domain/diagnostico";
+import {
   REAL_STATUSES,
   indexRealByContractSeries,
   realKey,
@@ -97,21 +103,13 @@ export default async function ResumenPage({
       })),
     );
 
+    const plannedByAllocation = await plannedMonthsByAllocation(selectedYear.id, selectedYear.year);
+
     rows = await Promise.all(
       allocations.map(async (allocation) => {
-        const vigente = await prisma.scheduleVersion.findFirst({
-          where: {
-            contractId: allocation.contractId,
-            pmdSeriesId: allocation.pmdSeriesId,
-            status: "APROBADO",
-          },
-          include: { monthlySchedules: { where: { periodYear: selectedYear.year } } },
-        });
-
-        const months = Array.from({ length: 12 }, (_, i) => {
-          const found = vigente?.monthlySchedules.find((ms) => ms.periodMonth === i + 1);
-          return found?.plannedAmount.toString() ?? "0";
-        });
+        const months =
+          plannedByAllocation.get(allocationKey(allocation.contractId, allocation.pmdSeriesId))
+            ?.months ?? emptyMonths();
 
         const programado = cumulativeToDate(selectedYear.year, months, today);
         const realMonths =
@@ -147,8 +145,19 @@ export default async function ResumenPage({
     );
   }
 
+  const yearLabel = selectedYear
+    ? `${selectedYear.pmdCycle.airport.iataCode} — ${selectedYear.pmdCycle.code} — ${selectedYear.year}`
+    : "";
+  // Solo se diagnostica cuando no hay nada que mostrar: si la tabla trae
+  // filas, un aviso encima sería ruido.
+  const diagnostico =
+    selectedYear && rows.length === 0
+      ? await diagnosticarAnio({ pmdYearId: selectedYear.id, year: selectedYear.year, yearLabel })
+      : null;
+
   return (
     <ResumenPageClient
+      diagnostico={diagnostico}
       years={pmdYears.map((py) => ({
         id: py.id,
         label: `${py.pmdCycle.airport.iataCode} — ${py.pmdCycle.code} — ${py.year}`,

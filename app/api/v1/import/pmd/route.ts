@@ -10,6 +10,7 @@ import {
   parsePmdWorkbook,
   type ParseResult,
 } from "@/lib/import/excel-pmd";
+import { writeExecution } from "@/lib/import/write-execution";
 
 /** 15 MB: el Excel de origen ronda 1 MB, así que sobra de margen. */
 const MAX_BYTES = 15 * 1024 * 1024;
@@ -22,6 +23,16 @@ function summarize(parsed: ParseResult) {
     totals: parsed.totals,
     lineCount: parsed.lines.length,
     years: [...IMPORT_YEARS],
+    warnings: parsed.warnings,
+    execution: parsed.execution
+      ? {
+          years: parsed.execution.years,
+          contractCount: parsed.execution.contracts.length,
+          pendingAwardCount: parsed.execution.pendingAwards.length,
+          skipped: parsed.execution.skipped,
+          totals: parsed.execution.totals,
+        }
+      : null,
   };
 }
 
@@ -126,6 +137,8 @@ export async function POST(request: Request) {
       let seriesCreated = 0;
       let seriesUpdated = 0;
       let itemsWritten = 0;
+      /** `${year}||${code}` → id, para enganchar los contratos a la serie de cada año. */
+      const seriesIdByYearCode = new Map<string, string>();
 
       for (const year of IMPORT_YEARS) {
         const factor = parsed.escalationFactors[year];
@@ -159,6 +172,7 @@ export async function POST(request: Request) {
 
           if (existing) seriesUpdated += 1;
           else seriesCreated += 1;
+          seriesIdByYearCode.set(`${year}||${series.code}`, saved.id);
 
           // Se reemplazan las líneas para que reimportar no acumule.
           await tx.pmdSeriesItem.deleteMany({ where: { pmdSeriesId: saved.id } });
@@ -179,9 +193,22 @@ export async function POST(request: Request) {
         }
       }
 
-      return { seriesCreated, seriesUpdated, itemsWritten, cycleCode };
+      // Sin esta segunda capa el sistema queda solo con el presupuesto anual
+      // por serie: sin contratos no hay nada que comparar, y Resumen,
+      // Dashboard y Programación no tienen de dónde sacar cifras.
+      const execution = parsed.execution
+        ? await writeExecution(tx, {
+            clientId: auth.clientId,
+            execution: parsed.execution,
+            seriesIdByYearCode,
+            fileName: file.name,
+            userId: auth.user.id,
+          })
+        : null;
+
+      return { seriesCreated, seriesUpdated, itemsWritten, cycleCode, execution };
     },
-    { timeout: 120_000 },
+    { timeout: 120_000, maxWait: 20_000 },
   );
 
   await writeAuditLog({
@@ -192,7 +219,14 @@ export async function POST(request: Request) {
     entityId: airport.id,
     afterValue: {
       fileName: file.name,
-      ...result,
+      seriesCreated: result.seriesCreated,
+      seriesUpdated: result.seriesUpdated,
+      itemsWritten: result.itemsWritten,
+      cycleCode: result.cycleCode,
+      contractsCreated: result.execution?.contractsCreated ?? 0,
+      contractsUpdated: result.execution?.contractsUpdated ?? 0,
+      scheduleRowsWritten: result.execution?.scheduleRowsWritten ?? 0,
+      actualRowsWritten: result.execution?.actualRowsWritten ?? 0,
       totals: parsed.totals,
       skippedRows: parsed.skipped.length,
     },

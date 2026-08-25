@@ -52,6 +52,19 @@ interface Preview {
   };
   lineCount: number;
   years: number[];
+  /** Avisos que no impiden importar pero dejan parte del control sin datos. */
+  warnings?: string[];
+  /** null si el archivo no trae las hojas de contratos y programación mensual. */
+  execution?: {
+    years: number[];
+    contractCount: number;
+    pendingAwardCount: number;
+    skipped: { rowNumber: number; reason: string }[];
+    totals: {
+      scheduleByYear: Record<string, string>;
+      actualByYear: Record<string, string>;
+    };
+  } | null;
   imported?: boolean;
   seriesCreated?: number;
   seriesUpdated?: number;
@@ -227,7 +240,9 @@ export function ImportarClient({ airports }: { airports: AirportOption[] }) {
             <p className="text-muted-foreground mt-1 text-sm">
               {preview.seriesCreated} series creadas y {preview.seriesUpdated} actualizadas
               (una por cada año del ciclo), con {preview.itemsWritten} líneas de proyecto.
-              Revisalo en Series PMD o en PMD Programado.
+              {preview.execution
+                ? ` Además se cargaron ${preview.execution.contractCount} contratos con su programación mensual y su erogación real: ya podés ver Resumen, Dashboard y Programación con cifras.`
+                : " El archivo no traía contratos, así que Resumen, Dashboard y Programación seguirán en cero."}
             </p>
           </CardContent>
         </Card>
@@ -235,6 +250,84 @@ export function ImportarClient({ airports }: { airports: AirportOption[] }) {
 
       {preview && (
         <>
+          {preview.warnings && preview.warnings.length > 0 && (
+            <Card className="border-amber-300 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/30">
+              <CardHeader>
+                <CardTitle className="text-base text-amber-900 dark:text-amber-200">
+                  Avisos ({preview.warnings.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-1 text-sm text-amber-900/90 dark:text-amber-200/90">
+                {preview.warnings.map((w) => (
+                  <p key={w}>{w}</p>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {preview.execution && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Contratos y programación mensual ({preview.execution.contractCount})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-2 text-sm">
+                <p className="text-muted-foreground">
+                  Esto es lo que alimenta Resumen, Dashboard y Programación. Sin estos datos
+                  esas pantallas quedan en cero.
+                </p>
+                {preview.execution.pendingAwardCount > 0 && (
+                  <p className="text-muted-foreground">
+                    {preview.execution.pendingAwardCount} paquetes tienen obra programada pero
+                    todavía no tienen contrato adjudicado: se agrupan por serie como producción
+                    por licitar.
+                  </p>
+                )}
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Año</TableHead>
+                      <TableHead className="text-right">Programado</TableHead>
+                      <TableHead className="text-right">Real</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {preview.execution.years.map((year) => (
+                      <TableRow key={year}>
+                        <TableCell>{year}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {money(preview.execution!.totals.scheduleByYear[year] ?? "0")}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {money(preview.execution!.totals.actualByYear[year] ?? "0")}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {preview.execution.skipped.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-1">
+                    <p className="font-medium">
+                      Filas de contrato no importadas ({preview.execution.skipped.length})
+                    </p>
+                    {preview.execution.skipped.slice(0, 10).map((s) => (
+                      <div key={s.rowNumber}>
+                        <span className="text-muted-foreground">Fila {s.rowNumber}:</span>{" "}
+                        {s.reason}
+                      </div>
+                    ))}
+                    {preview.execution.skipped.length > 10 && (
+                      <p className="text-muted-foreground">
+                        …y {preview.execution.skipped.length - 10} más.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {preview.skipped.length > 0 && (
             <Card>
               <CardHeader>

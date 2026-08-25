@@ -12,6 +12,12 @@ import {
 } from "@/lib/domain/dashboard";
 import { cumulativeToDate } from "@/lib/domain/resumen";
 import {
+  allocationKey,
+  emptyMonths,
+  plannedMonthsByAllocation,
+} from "@/lib/domain/programado";
+import { diagnosticarAnio } from "@/lib/domain/diagnostico";
+import {
   REAL_STATUSES,
   indexRealByContractSeries,
   realKey,
@@ -95,24 +101,15 @@ export default async function DashboardPage({
       },
     });
 
-    const rows = await Promise.all(
-      allocations.map(async (allocation) => {
-        const vigente = await prisma.scheduleVersion.findFirst({
-          where: {
-            contractId: allocation.contractId,
-            pmdSeriesId: allocation.pmdSeriesId,
-            status: "APROBADO",
-          },
-          include: { monthlySchedules: { where: { periodYear: selectedYear.year } } },
-        });
-        const months = Array.from({ length: 12 }, (_, i) => {
-          const found = vigente?.monthlySchedules.find((ms) => ms.periodMonth === i + 1);
-          return found?.plannedAmount.toString() ?? "0";
-        });
-        const group = allocation.pmdSeries.investmentGroup ?? allocation.contract.investmentGroup;
-        return { allocation, months, group };
-      }),
-    );
+    const plannedByAllocation = await plannedMonthsByAllocation(selectedYear.id, selectedYear.year);
+
+    const rows = allocations.map((allocation) => {
+      const months =
+        plannedByAllocation.get(allocationKey(allocation.contractId, allocation.pmdSeriesId))
+          ?.months ?? emptyMonths();
+      const group = allocation.pmdSeries.investmentGroup ?? allocation.contract.investmentGroup;
+      return { allocation, months, group };
+    });
 
     const realRecords = await prisma.actualInvestment.findMany({
       where: {
@@ -312,8 +309,20 @@ export default async function DashboardPage({
     label: `${py.pmdCycle.airport.iataCode} — ${py.pmdCycle.code} — ${py.year}`,
   }));
 
+  // Un año sin programado ni real no tiene nada que graficar: en vez de
+  // dibujar barras en cero, se explica qué falta cargar.
+  const diagnostico =
+    selectedYear && kpiProgramadoAnual === 0 && kpiRealAcumulado === 0
+      ? await diagnosticarAnio({
+          pmdYearId: selectedYear.id,
+          year: selectedYear.year,
+          yearLabel: yearOptions.find((y) => y.id === selectedYear.id)?.label ?? "",
+        })
+      : null;
+
   return (
     <DashboardPageClient
+      diagnostico={diagnostico}
       years={yearOptions}
       series={series.map((s) => ({ id: s.id, label: `${s.code} — ${s.name}` }))}
       companies={companies.map((c) => ({ id: c.id, label: c.name }))}

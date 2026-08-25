@@ -7,6 +7,12 @@ import {
   ProgramacionPageClient,
   type ProgramacionRow,
 } from "@/components/programacion/programacion-page-client";
+import {
+  allocationKey,
+  emptyMonths,
+  plannedMonthsByAllocation,
+} from "@/lib/domain/programado";
+import { diagnosticarAnio } from "@/lib/domain/diagnostico";
 
 export default async function ProgramacionPage({
   searchParams,
@@ -39,38 +45,36 @@ export default async function ProgramacionPage({
       orderBy: [{ contract: { contractNumber: "asc" } }],
     });
 
-    rows = await Promise.all(
-      allocations.map(async (allocation) => {
-        const vigente = await prisma.scheduleVersion.findFirst({
-          where: {
-            contractId: allocation.contractId,
-            pmdSeriesId: allocation.pmdSeriesId,
-            status: "APROBADO",
-          },
-          include: { monthlySchedules: { where: { periodYear: selectedYear.year } } },
-        });
+    const plannedByAllocation = await plannedMonthsByAllocation(selectedYear.id, selectedYear.year);
 
-        const months = Array.from({ length: 12 }, (_, i) => {
-          const found = vigente?.monthlySchedules.find((ms) => ms.periodMonth === i + 1);
-          return found?.plannedAmount.toString() ?? "0";
-        });
+    rows = allocations.map((allocation) => {
+      const planned = plannedByAllocation.get(
+        allocationKey(allocation.contractId, allocation.pmdSeriesId),
+      );
 
-        return {
-          allocationId: allocation.id,
-          contractId: allocation.contractId,
-          contractNumber: allocation.contract.contractNumber,
-          contractName: allocation.contract.name,
-          pmdSeriesId: allocation.pmdSeriesId,
-          seriesCode: allocation.pmdSeries.code,
-          seriesName: allocation.pmdSeries.name,
-          allocatedAmount: allocation.allocatedAmount.toString(),
-          periodYear: selectedYear.year,
-          months,
-          hasImbalance: vigente?.monthlySchedules.some((ms) => ms.imbalanceFlag) ?? false,
-        };
-      }),
-    );
+      return {
+        allocationId: allocation.id,
+        contractId: allocation.contractId,
+        contractNumber: allocation.contract.contractNumber,
+        contractName: allocation.contract.name,
+        pmdSeriesId: allocation.pmdSeriesId,
+        seriesCode: allocation.pmdSeries.code,
+        seriesName: allocation.pmdSeries.name,
+        allocatedAmount: allocation.allocatedAmount.toString(),
+        periodYear: selectedYear.year,
+        months: planned?.months ?? emptyMonths(),
+        hasImbalance: planned?.hasImbalance ?? false,
+      };
+    });
   }
+
+  const yearLabel = selectedYear
+    ? `${selectedYear.pmdCycle.airport.iataCode} — ${selectedYear.pmdCycle.code} — ${selectedYear.year}`
+    : "";
+  const diagnostico =
+    selectedYear && rows.length === 0
+      ? await diagnosticarAnio({ pmdYearId: selectedYear.id, year: selectedYear.year, yearLabel })
+      : null;
 
   return (
     <ProgramacionPageClient
@@ -81,6 +85,7 @@ export default async function ProgramacionPage({
       }))}
       selectedYearId={selectedYear?.id ?? ""}
       rows={rows}
+      diagnostico={diagnostico}
       canEdit={hasPermission(user, "PROGRAMACION.CREAR")}
     />
   );
